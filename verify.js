@@ -1,23 +1,26 @@
-import { calculateProfit } from './src/utils/calculator.js';
+import { calculateProfit, DEFAULT_ROYALTIES } from './src/utils/calculator.js';
 
 function test() {
-    console.log('--- Verification Test 1: 22k units, 5 EUR TP ---');
-    const res1 = calculateProfit(5, 22000);
-    console.log('COGS per unit:', res1.cogsPerUnit, '(Expected: 1.79)');
-    console.log('Total Royalties:', res1.totalRoyalties);
-    // KammPhillips: 5 * 0.15 = 0.75
-    // Emin: (5 - 0.75) * 0.075 = 4.25 * 0.075 = 0.31875
-    // Lubowski: (4.25 - 0.31875) * 0.15 = 3.93125 * 0.15 = 0.5896875
-    // Pharmula: (3.93125 - 0.5896875) * 0.10 = 3.3415625 * 0.1 = 0.33415625
-    // Aspire: (3.3415625 - 0.33415625) * 0.04 = 3.00740625 * 0.04 = 0.12029625
-    // Total Royalty Per Unit: 0.75 + 0.31875 + 0.5896875 + 0.33415625 + 0.12029625 = 2.11289
-    console.log('Royalty Per Unit:', res1.totalRoyalties / 22000, '(Expected: ~2.11289)');
+    console.log('--- Verification Test 1: 11k units (Updated COGS) ---');
+    const res1 = calculateProfit(5, 11000);
+    console.log('COGS per unit:', res1.cogsPerUnit, '(Expected: 2.19)');
 
-    console.log('\n--- Verification Test 2: 110k units, 10 GBP TP (assume 1.2 GBP/EUR) ---');
-    // 10 GBP = 12 EUR approx
-    const res2 = calculateProfit(12, 110000);
-    console.log('COGS per unit:', res2.cogsPerUnit, '(Expected: 1.37)');
-    console.log('Profit Margin:', res2.profitMargin.toFixed(2) + '%');
+    console.log('\n--- Verification Test 2: Medinfar Manual COGS ---');
+    const res2 = calculateProfit(5, 50000, false, 1.25);
+    console.log('COGS per unit:', res2.cogsPerUnit, '(Expected: 1.25)');
+    console.log('Total COGS:', res2.totalCogs, `(Expected: ${1.25 * 50000})`);
+
+    console.log('\n--- Verification Test 3: Royalty POST-COGS logic ---');
+    // TP = 5, COGS = 2, Result base = 3
+    // KammPhillips (15%): 3 * 0.15 = 0.45
+    const res3 = calculateProfit(5, 10000, true, 2);
+    console.log('First Royalty Per Unit:', res3.royalties[0].perUnit, '(Expected: 0.45)');
+
+    console.log('\n--- Verification Test 4: Custom Royalty Rates ---');
+    const customRoyalties = [...DEFAULT_ROYALTIES];
+    customRoyalties[0] = { ...customRoyalties[0], rate: 0.20 }; // KammPhillips 20%
+    const res4 = calculateProfit(5, 10000, false, null, customRoyalties);
+    console.log('KammPhillips (20%) Per Unit:', res4.royalties[0].perUnit, '(Expected: 1.00)');
 }
 
 test();
