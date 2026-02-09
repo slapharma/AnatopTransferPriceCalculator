@@ -6,7 +6,7 @@ export interface Country {
 }
 
 export const COUNTRIES: Country[] = [
-    // Europe
+    // --- EUROPE ---
     { name: 'Austria', code: 'AT', population: 9.0, region: 'Europe' },
     { name: 'Belgium', code: 'BE', population: 11.6, region: 'Europe' },
     { name: 'Bulgaria', code: 'BG', population: 6.9, region: 'Europe' },
@@ -39,12 +39,29 @@ export const COUNTRIES: Country[] = [
     { name: 'Switzerland', code: 'CH', population: 8.6, region: 'Europe' },
     { name: 'United Kingdom', code: 'GB', population: 67.2, region: 'Europe' },
 
-    // North America
+    // --- NORTH AMERICA ---
     { name: 'Canada', code: 'CA', population: 38.0, region: 'North America' },
     { name: 'Mexico', code: 'MX', population: 128.9, region: 'North America' },
     { name: 'United States', code: 'US', population: 331.0, region: 'North America' },
 
-    // Asia & Pacific
+    // --- GCC & MENA ---
+    { name: 'United Arab Emirates', code: 'AE', population: 9.9, region: 'GCC' },
+    { name: 'Saudi Arabia', code: 'SA', population: 34.8, region: 'GCC' },
+    { name: 'Qatar', code: 'QA', population: 2.9, region: 'GCC' },
+    { name: 'Kuwait', code: 'KW', population: 4.3, region: 'GCC' },
+    { name: 'Oman', code: 'OM', population: 5.1, region: 'GCC' },
+    { name: 'Bahrain', code: 'BH', population: 1.7, region: 'GCC' },
+    { name: 'Egypt', code: 'EG', population: 102.3, region: 'MENA' },
+    { name: 'Jordan', code: 'JO', population: 10.2, region: 'MENA' },
+    { name: 'Lebanon', code: 'LB', population: 6.8, region: 'MENA' },
+    { name: 'Morocco', code: 'MA', population: 36.9, region: 'MENA' },
+    { name: 'Tunisia', code: 'TN', population: 11.8, region: 'MENA' },
+    { name: 'Algeria', code: 'DZ', population: 43.8, region: 'MENA' },
+    { name: 'Iraq', code: 'IQ', population: 40.2, region: 'MENA' },
+    { name: 'Israel', code: 'IL', population: 9.2, region: 'MENA' },
+    { name: 'Iran', code: 'IR', population: 84.0, region: 'MENA' },
+
+    // --- ASIA PACIFIC ---
     { name: 'Australia', code: 'AU', population: 25.7, region: 'Asia Pacific' },
     { name: 'China', code: 'CN', population: 1411.0, region: 'Asia Pacific' },
     { name: 'Hong Kong', code: 'HK', population: 7.5, region: 'Asia Pacific' },
@@ -59,22 +76,27 @@ export const COUNTRIES: Country[] = [
     { name: 'Taiwan', code: 'TW', population: 23.6, region: 'Asia Pacific' },
     { name: 'Thailand', code: 'TH', population: 69.8, region: 'Asia Pacific' },
     { name: 'Vietnam', code: 'VN', population: 97.3, region: 'Asia Pacific' },
+    { name: 'Pakistan', code: 'PK', population: 220.9, region: 'Asia Pacific' },
+    { name: 'Bangladesh', code: 'BD', population: 164.7, region: 'Asia Pacific' },
 
-    // Middle East & Africa
-    { name: 'Egypt', code: 'EG', population: 102.3, region: 'Middle East & Africa' },
-    { name: 'Israel', code: 'IL', population: 9.2, region: 'Middle East & Africa' },
-    { name: 'Nigeria', code: 'NG', population: 206.1, region: 'Middle East & Africa' },
-    { name: 'Saudi Arabia', code: 'SA', population: 34.8, region: 'Middle East & Africa' },
-    { name: 'South Africa', code: 'ZA', population: 59.3, region: 'Middle East & Africa' },
-    { name: 'Turkey', code: 'TR', population: 84.3, region: 'Middle East & Africa' },
-    { name: 'United Arab Emirates', code: 'AE', population: 9.9, region: 'Middle East & Africa' },
+    // --- AFRICA ---
+    { name: 'South Africa', code: 'ZA', population: 59.3, region: 'Africa' },
+    { name: 'Nigeria', code: 'NG', population: 206.1, region: 'Africa' },
+    { name: 'Kenya', code: 'KE', population: 53.8, region: 'Africa' },
+    { name: 'Ethiopia', code: 'ET', population: 115.0, region: 'Africa' },
+    { name: 'Ghana', code: 'GH', population: 31.1, region: 'Africa' },
+    { name: 'Tanzania', code: 'TZ', population: 59.7, region: 'Africa' },
+    { name: 'Uganda', code: 'UG', population: 45.7, region: 'Africa' },
+    { name: 'Ivory Coast', code: 'CI', population: 26.4, region: 'Africa' },
+    { name: 'Senegal', code: 'SN', population: 16.7, region: 'Africa' },
 
-    // Latin America
+    // --- LATIN AMERICA ---
     { name: 'Argentina', code: 'AR', population: 45.4, region: 'Latin America' },
     { name: 'Brazil', code: 'BR', population: 212.6, region: 'Latin America' },
     { name: 'Chile', code: 'CL', population: 19.1, region: 'Latin America' },
     { name: 'Colombia', code: 'CO', population: 50.9, region: 'Latin America' },
-    { name: 'Peru', code: 'PE', population: 33.0, region: 'Latin America' }
+    { name: 'Peru', code: 'PE', population: 33.0, region: 'Latin America' },
+    { name: 'Venezuela', code: 'VE', population: 28.4, region: 'Latin America' }
 ];
 
 export interface TerritoryForecast {

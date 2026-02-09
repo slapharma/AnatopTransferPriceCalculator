@@ -50,7 +50,8 @@ function App() {
 
     // Calculator Extra Fields
     const [companyName, setCompanyName] = useState('');
-    const [countries, setCountries] = useState('');
+    const [selectedDealCountries, setSelectedDealCountries] = useState<Country[]>([]);
+    const [savedForecasts, setSavedForecasts] = useState<{ id: string, name: string, entries: { id: string, country: Country }[] }[]>([]);
 
     // Expanded Service Fees
     const [serviceFees, setServiceFees] = useState<ServiceFees>({
@@ -117,6 +118,16 @@ function App() {
             }
         }
 
+        // Load Saved Forecasts
+        const savedF = localStorage.getItem('anatop_forecasts');
+        if (savedF) {
+            try {
+                setSavedForecasts(JSON.parse(savedF));
+            } catch (e) {
+                console.error("Failed to parse forecasts", e);
+            }
+        }
+
         // Check Auth session
         const auth = sessionStorage.getItem('anatop_auth');
         if (auth === 'true') {
@@ -127,6 +138,10 @@ function App() {
     useEffect(() => {
         localStorage.setItem('anatop_deals', JSON.stringify(deals));
     }, [deals]);
+
+    useEffect(() => {
+        localStorage.setItem('anatop_forecasts', JSON.stringify(savedForecasts));
+    }, [savedForecasts]);
 
     const handlePasswordSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -142,7 +157,7 @@ function App() {
         const newDeal: Deal = {
             id: Date.now().toString(),
             companyName: companyName || 'Unnamed Company',
-            countries: countries || 'N/A',
+            countries: selectedDealCountries.map(c => c.name).join(', ') || 'N/A',
             serviceFees: { ...serviceFees },
             currency: currency,
             comparisonCurrency: comparisonCurrency,
@@ -164,7 +179,7 @@ function App() {
         setActiveTab(type);
         // Clear fields
         setCompanyName('');
-        setCountries('');
+        setSelectedDealCountries([]);
         setServiceFees({
             signing: { amount: 0, year: 1 },
             approval: { amount: 0, year: 1 },
@@ -181,7 +196,10 @@ function App() {
 
     const viewDeal = (deal: Deal) => {
         setCompanyName(deal.companyName);
-        setCountries(deal.countries);
+        // Map names back to country objects if possible
+        const names = deal.countries.split(', ');
+        const mappedCountries = COUNTRIES.filter(c => names.includes(c.name));
+        setSelectedDealCountries(mappedCountries);
         setServiceFees(deal.serviceFees);
         setTransferPriceInput(deal.transferPrice.toString());
         setPartnerSellingPrice(deal.partnerSellingPrice.toString());
@@ -199,10 +217,42 @@ function App() {
         setActiveTab('calculate');
     };
 
+    const saveCurrentForecast = () => {
+        if (territoryEntries.length === 0) return;
+        const name = prompt('Enter a name for this forecast:', `Forecast ${new Date().toLocaleDateString()}`);
+        if (!name) return;
+
+        const newForecast = {
+            id: Date.now().toString(),
+            name,
+            entries: [...territoryEntries]
+        };
+        setSavedForecasts([...savedForecasts, newForecast]);
+    };
+
+    const loadForecast = (forecast: any) => {
+        setTerritoryEntries(forecast.entries);
+    };
+
+    const deleteForecast = (id: string) => {
+        if (window.confirm('Delete this saved forecast?')) {
+            setSavedForecasts(savedForecasts.filter(f => f.id !== id));
+        }
+    };
+
     const syncForecastFromTerritory = () => {
-        const peakTotal = territoryForecasts.reduce((sum, f) => sum + f.anatopShare, 0);
+        const forecasts = selectedDealCountries.map(c => calculateTerritoryForecast(
+            c,
+            parseFloat(prevalence) || 0.35,
+            parseFloat(caf) || 40,
+            parseFloat(anatopMarketShare) || 50,
+            parseFloat(anatopPrice) || 25
+        ));
+
+        const peakTotal = forecasts.reduce((sum, f) => sum + f.anatopShare, 0);
+
         if (peakTotal === 0) {
-            alert('No territory forecast data found. Please select countries in the Territory Forecast tab first.');
+            alert('Please select countries under "Target Country(s)" first.');
             return;
         }
         // Basic ramp-up projection: 10%, 30%, 60%, 100%, 100% of peak
@@ -483,8 +533,8 @@ function App() {
                                         background: 'white',
                                         cursor: 'pointer'
                                     }}>
-                                        {countries ? countries.split(', ').map(c => (
-                                            <span key={c} style={{
+                                        {selectedDealCountries.length > 0 ? selectedDealCountries.map(c => (
+                                            <span key={c.code} style={{
                                                 background: 'var(--primary)',
                                                 color: 'white',
                                                 padding: '2px 8px',
@@ -494,11 +544,11 @@ function App() {
                                                 alignItems: 'center',
                                                 gap: '4px'
                                             }}>
-                                                {c}
+                                                {c.name}
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        setCountries(countries.split(', ').filter(x => x !== c).join(', '));
+                                                        setSelectedDealCountries(selectedDealCountries.filter(x => x.code !== c.code));
                                                     }}
                                                     style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', padding: 0, fontSize: '10px' }}
                                                 >
@@ -509,16 +559,17 @@ function App() {
                                     </div>
                                     <select
                                         onChange={(e) => {
-                                            const val = e.target.value;
-                                            if (val && !countries.includes(val)) {
-                                                setCountries(countries ? `${countries}, ${val}` : val);
+                                            const code = e.target.value;
+                                            const country = COUNTRIES.find(c => c.code === code);
+                                            if (country && !selectedDealCountries.find(c => c.code === code)) {
+                                                setSelectedDealCountries([...selectedDealCountries, country]);
                                             }
                                         }}
                                         style={{ marginTop: '0.5rem', width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)' }}
                                     >
                                         <option value="">+ Add Country</option>
                                         {COUNTRIES.map(c => (
-                                            <option key={c.code} value={c.name}>{c.name}</option>
+                                            <option key={c.code} value={c.code}>{c.name}</option>
                                         ))}
                                     </select>
                                 </div>
@@ -1023,20 +1074,7 @@ function App() {
                                                                 <button
                                                                     className="icon-btn"
                                                                     onClick={async () => {
-                                                                        setCompanyName(deal.companyName);
-                                                                        setCountries(deal.countries);
-                                                                        setServiceFees(deal.serviceFees);
-                                                                        setTransferPriceInput(deal.transferPrice.toString());
-                                                                        setPartnerSellingPrice(deal.partnerSellingPrice.toString());
-                                                                        setPricingType(deal.pricingType);
-                                                                        setForecastSalesInputs(deal.forecastSales.map(n => n.toString()));
-                                                                        setSupplier(deal.supplier);
-                                                                        setMedinfarCogsInput(deal.medinfarCogs.toString());
-                                                                        setRoyaltyAfterCogs(deal.includesCogs);
-                                                                        setRoyalties(deal.royalties);
-                                                                        setCurrency(deal.currency);
-                                                                        setComparisonCurrency(deal.comparisonCurrency);
-                                                                        setActiveTab('calculate');
+                                                                        viewDeal(deal);
                                                                         setTimeout(() => {
                                                                             downloadPDF(reportRef, `Anatop_Deal_${deal.companyName}`);
                                                                         }, 100);
@@ -1105,52 +1143,55 @@ function App() {
                         </div>
 
                         <div className="country-selector" style={{ marginBottom: '2rem' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                                <label className="input-label" style={{ margin: 0 }}>Choose Countries to Forecast</label>
-                                <input
-                                    type="text"
-                                    placeholder="Search country or region..."
-                                    value={countrySearch}
-                                    onChange={(e) => setCountrySearch(e.target.value)}
-                                    style={{ padding: '0.4rem 1rem', borderRadius: '20px', border: '1px solid var(--border)', fontSize: '0.8rem', width: '250px' }}
-                                />
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: '1rem', alignItems: 'center', marginBottom: '1rem' }}>
+                                <div style={{ position: 'relative' }}>
+                                    <input
+                                        type="text"
+                                        placeholder="Search countries (e.g. Saudi Arabia, UAE, China)..."
+                                        value={countrySearch}
+                                        onChange={(e) => setCountrySearch(e.target.value)}
+                                        style={{ padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid var(--border)', width: '100%', fontSize: '1rem' }}
+                                    />
+                                    {countrySearch && (
+                                        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid var(--border)', borderRadius: '8px', marginTop: '4px', maxHeight: '250px', overflowY: 'auto', zIndex: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                                            {filteredCountries.length > 0 ? filteredCountries.map(c => (
+                                                <div
+                                                    key={c.code}
+                                                    className="search-result-item"
+                                                    onClick={() => {
+                                                        setTerritoryEntries([...territoryEntries, { id: Math.random().toString(36).substr(2, 9), country: c }]);
+                                                        setCountrySearch('');
+                                                    }}
+                                                    style={{ padding: '0.75rem 1rem', cursor: 'pointer', borderBottom: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between' }}
+                                                >
+                                                    <span>{c.name}</span>
+                                                    <span style={{ color: 'var(--text-dim)', fontSize: '0.8rem' }}>{c.region}</span>
+                                                </div>
+                                            )) : <div style={{ padding: '1rem', color: 'var(--text-dim)' }}>No countries found</div>}
+                                        </div>
+                                    )}
+                                </div>
+                                <button className="btn-primary" onClick={saveCurrentForecast} style={{ padding: '0.75rem 1.5rem', background: 'var(--success)' }}>
+                                    <Save size={18} /> Save Forecast
+                                </button>
+                                <button className="btn-secondary" onClick={() => setTerritoryEntries([])} style={{ height: '100%' }}>
+                                    <RefreshCw size={18} /> Clear
+                                </button>
                             </div>
-                            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', maxHeight: '180px', overflowY: 'auto', padding: '1rem', border: '1px solid var(--border)', borderRadius: '8px', background: 'white' }}>
-                                {filteredCountries.map(country => {
-                                    const count = territoryEntries.filter(e => e.country.code === country.code).length;
-                                    return (
-                                        <button
-                                            key={country.code}
-                                            className={`mini-tab ${count > 0 ? 'active' : ''}`}
-                                            onClick={() => {
-                                                setTerritoryEntries([...territoryEntries, { id: Math.random().toString(36).substr(2, 9), country }]);
-                                            }}
-                                            style={{ margin: 0, position: 'relative' }}
-                                        >
-                                            {country.name}
-                                            {count > 0 && (
-                                                <span style={{
-                                                    position: 'absolute',
-                                                    top: '-8px',
-                                                    right: '-8px',
-                                                    background: 'black',
-                                                    color: 'white',
-                                                    borderRadius: '50%',
-                                                    width: '18px',
-                                                    height: '18px',
-                                                    fontSize: '10px',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    border: '2px solid white'
-                                                }}>
-                                                    {count}
-                                                </span>
-                                            )}
-                                        </button>
-                                    );
-                                })}
-                            </div>
+
+                            {savedForecasts.length > 0 && (
+                                <div className="saved-forecasts" style={{ marginBottom: '1.5rem', background: 'var(--bg-secondary)', padding: '1rem', borderRadius: '12px' }}>
+                                    <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-dim)', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Saved Analysis</div>
+                                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                        {savedForecasts.map(f => (
+                                            <div key={f.id} className="mini-tab" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'white', border: '1px solid var(--border)' }}>
+                                                <span onClick={() => loadForecast(f)} style={{ cursor: 'pointer' }}>{f.name}</span>
+                                                <button onClick={() => deleteForecast(f.id)} style={{ padding: 0, color: 'var(--danger)' }}>&times;</button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         <div className="deals-table-container">
