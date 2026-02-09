@@ -16,6 +16,20 @@ export interface CalculationResult {
     royaltyBase: 'TP' | 'Profit'; // TP = Royalty on Transfer Price, Profit = Royalty on (TP - COGS)
 }
 
+export interface YearlyBreakdown extends CalculationResult {
+    year: number;
+    sales: number;
+}
+
+export interface FiveYearCalculationResult {
+    years: YearlyBreakdown[];
+    totalFiveYearRevenue: number;
+    totalFiveYearCogs: number;
+    totalFiveYearRoyalties: number;
+    totalFiveYearNetProfit: number;
+    averageMargin: number;
+}
+
 export const DEFAULT_ROYALTIES: RoyaltyTier[] = [
     { name: 'KammPhillips', rate: 0.15 },
     { name: 'Emin', rate: 0.075 },
@@ -87,5 +101,37 @@ export function calculateProfit(
         profitPerUnit,
         profitMargin: isFinite(profitMargin) ? profitMargin : 0,
         royaltyBase: royaltyAfterCogs ? 'Profit' : 'TP'
+    };
+}
+
+export function calculateFiveYearProfit(
+    transferPrice: number,
+    fiveYearSales: number[],
+    royaltyAfterCogs: boolean = false,
+    customCogs: number | null = null,
+    customRoyalties: RoyaltyTier[] = DEFAULT_ROYALTIES
+): FiveYearCalculationResult {
+    const yearlyBreakdowns: YearlyBreakdown[] = fiveYearSales.map((sales, index) => {
+        const result = calculateProfit(transferPrice, sales, royaltyAfterCogs, customCogs, customRoyalties);
+        return {
+            ...result,
+            year: index + 1,
+            sales
+        };
+    });
+
+    const totalFiveYearRevenue = yearlyBreakdowns.reduce((sum, y) => sum + y.totalRevenue, 0);
+    const totalFiveYearCogs = yearlyBreakdowns.reduce((sum, y) => sum + y.totalCogs, 0);
+    const totalFiveYearRoyalties = yearlyBreakdowns.reduce((sum, y) => sum + y.totalRoyalties, 0);
+    const totalFiveYearNetProfit = yearlyBreakdowns.reduce((sum, y) => sum + y.netProfit, 0);
+    const averageMargin = totalFiveYearRevenue > 0 ? (totalFiveYearNetProfit / totalFiveYearRevenue) * 100 : 0;
+
+    return {
+        years: yearlyBreakdowns,
+        totalFiveYearRevenue,
+        totalFiveYearCogs,
+        totalFiveYearRoyalties,
+        totalFiveYearNetProfit,
+        averageMargin
     };
 }

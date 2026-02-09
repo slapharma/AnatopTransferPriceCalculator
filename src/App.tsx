@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { type Currency, type FXRates, fetchFXRates, convertPrice } from './utils/fx';
-import { calculateProfit, DEFAULT_ROYALTIES, type RoyaltyTier } from './utils/calculator';
-import { Package, FileDown, Settings, Info, Lock, Briefcase, History, Trash2, Edit, Save, Plus } from 'lucide-react';
+import { calculateFiveYearProfit, DEFAULT_ROYALTIES, type RoyaltyTier } from './utils/calculator';
+import { FileDown, Settings, Info, Lock, Briefcase, History, Trash2, Edit, Save, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -13,8 +13,9 @@ interface Deal {
     initialServiceFee: number;
     totalServiceFee: number;
     currency: Currency;
+    comparisonCurrency: Currency;
     transferPrice: number;
-    forecastSales: number;
+    forecastSales: number[]; // 5-year array
     supplier: 'CPM' | 'Medinfar';
     medinfarCogs: number;
     includesCogs: boolean;
@@ -26,8 +27,9 @@ interface Deal {
 function App() {
     const [rates, setRates] = useState<FXRates | null>(null);
     const [currency, setCurrency] = useState<Currency>('EUR');
+    const [comparisonCurrency, setComparisonCurrency] = useState<Currency>('GBP');
     const [transferPriceInput, setTransferPriceInput] = useState<string>('5.00');
-    const [forecastSalesInput, setForecastSalesInput] = useState<string>('50000');
+    const [forecastSalesInputs, setForecastSalesInputs] = useState<string[]>(['50000', '60000', '70000', '80000', '100000']);
 
     // Password State
     const [password, setPassword] = useState('');
@@ -52,6 +54,9 @@ function App() {
     const [royaltyAfterCogs, setRoyaltyAfterCogs] = useState<boolean>(false);
     const [royalties, setRoyalties] = useState<RoyaltyTier[]>(DEFAULT_ROYALTIES);
 
+    // Summary View vs Annual Breakdown
+    const [viewMode, setViewMode] = useState<'summary' | 'breakdown'>('summary');
+
     const reportRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -60,7 +65,18 @@ function App() {
         // Load Deals
         const savedDeals = localStorage.getItem('anatop_deals');
         if (savedDeals) {
-            setDeals(JSON.parse(savedDeals));
+            try {
+                const parsed = JSON.parse(savedDeals);
+                // Migrate old deals if needed (simple forecastSales to array)
+                const migrated = parsed.map((d: any) => ({
+                    ...d,
+                    forecastSales: Array.isArray(d.forecastSales) ? d.forecastSales : [d.forecastSales || 0, 0, 0, 0, 0],
+                    comparisonCurrency: d.comparisonCurrency || 'EUR'
+                }));
+                setDeals(migrated);
+            } catch (e) {
+                console.error("Failed to parse deals", e);
+            }
         }
 
         // Check Auth session
@@ -92,8 +108,9 @@ function App() {
             initialServiceFee: parseFloat(initialServiceFee) || 0,
             totalServiceFee: parseFloat(totalServiceFee) || 0,
             currency: currency,
+            comparisonCurrency: comparisonCurrency,
             transferPrice: parseFloat(transferPriceInput) || 0,
-            forecastSales: parseFloat(forecastSalesInput) || 0,
+            forecastSales: forecastSalesInputs.map(s => parseFloat(s) || 0),
             supplier: supplier,
             medinfarCogs: parseFloat(medinfarCogsInput) || 0,
             includesCogs: royaltyAfterCogs,
@@ -125,7 +142,7 @@ function App() {
         return convertPrice(parseFloat(transferPriceInput) || 0, currency, 'EUR', rates);
     }, [transferPriceInput, currency, rates]);
 
-    const forecastSales = parseFloat(forecastSalesInput) || 0;
+    const fiveYearSales = forecastSalesInputs.map(s => parseFloat(s) || 0);
 
     const medinfarCogsInEUR = useMemo(() => {
         if (!rates) return parseFloat(medinfarCogsInput) || 0;
@@ -134,8 +151,8 @@ function App() {
 
     const results = useMemo(() => {
         const customCogs = supplier === 'Medinfar' ? medinfarCogsInEUR : null;
-        return calculateProfit(transferPriceInEUR, forecastSales, royaltyAfterCogs, customCogs, royalties);
-    }, [transferPriceInEUR, forecastSales, royaltyAfterCogs, supplier, medinfarCogsInEUR, royalties]);
+        return calculateFiveYearProfit(transferPriceInEUR, fiveYearSales, royaltyAfterCogs, customCogs, royalties);
+    }, [transferPriceInEUR, fiveYearSales, royaltyAfterCogs, supplier, medinfarCogsInEUR, royalties]);
 
     const formatCurrency = (amount: number, curr: Currency = currency) => {
         let displayAmount = amount;
@@ -147,14 +164,6 @@ function App() {
             style: 'currency',
             currency: curr,
         }).format(displayAmount);
-    };
-
-    const handleRoyaltyChange = (index: number, newRate: string) => {
-        const rate = parseFloat(newRate) / 100;
-        if (isNaN(rate)) return;
-        const newRoyalties = [...royalties];
-        newRoyalties[index] = { ...newRoyalties[index], rate };
-        setRoyalties(newRoyalties);
     };
 
     const downloadPDF = async (targetRef: React.RefObject<HTMLDivElement>, filename: string) => {
@@ -228,16 +237,35 @@ function App() {
                     <h1>ANATOP Deal Pipeline</h1>
                     <p className="subtitle">Global Deal Management & Analysis</p>
                 </div>
-                <div className="currency-toggle">
-                    {(['GBP', 'EUR', 'USD'] as Currency[]).map((c) => (
-                        <button
-                            key={c}
-                            className={`toggle-btn ${currency === c ? 'active' : ''}`}
-                            onClick={() => setCurrency(c)}
-                        >
-                            {c}
-                        </button>
-                    ))}
+                <div style={{ display: 'flex', gap: '2rem' }}>
+                    <div className="currency-group">
+                        <label className="input-label">Deal Currency (Default to EUR)</label>
+                        <div className="currency-toggle">
+                            {(['GBP', 'EUR', 'USD'] as Currency[]).map((c) => (
+                                <button
+                                    key={c}
+                                    className={`toggle-btn ${currency === c ? 'active' : ''}`}
+                                    onClick={() => setCurrency(c)}
+                                >
+                                    {c}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="currency-group">
+                        <label className="input-label">Comparison Currency</label>
+                        <div className="currency-toggle">
+                            {(['GBP', 'EUR', 'USD'] as Currency[]).map((c) => (
+                                <button
+                                    key={c}
+                                    className={`toggle-btn ${comparisonCurrency === c ? 'active' : ''}`}
+                                    onClick={() => setComparisonCurrency(c)}
+                                >
+                                    {c}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -338,15 +366,22 @@ function App() {
                             </div>
 
                             <div className="form-group">
-                                <label>Forecast Annual Sales (Units)</label>
-                                <div className="input-wrapper">
-                                    <span className="currency-symbol" style={{ left: '0.75rem' }}><Package size={16} /></span>
-                                    <input
-                                        style={{ paddingLeft: '2.5rem' }}
-                                        type="number"
-                                        value={forecastSalesInput}
-                                        onChange={(e) => setForecastSalesInput(e.target.value)}
-                                    />
+                                <label>Forecast Annual Sales (Units) - 5 Year Outlook</label>
+                                <div className="sales-grid">
+                                    {forecastSalesInputs.map((val, idx) => (
+                                        <div key={idx} className="year-input">
+                                            <label>Year {idx + 1}</label>
+                                            <input
+                                                type="number"
+                                                value={val}
+                                                onChange={(e) => {
+                                                    const newInputs = [...forecastSalesInputs];
+                                                    newInputs[idx] = e.target.value;
+                                                    setForecastSalesInputs(newInputs);
+                                                }}
+                                            />
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
 
@@ -383,11 +418,6 @@ function App() {
                                         />
                                     </motion.div>
                                 )}
-                                {supplier === 'CPM' && (
-                                    <div className="payment-badge" style={{ marginTop: '8px', width: 'fit-content' }}>
-                                        Tiered COGS: {formatCurrency(results.cogsPerUnit, 'EUR')} / unit (EUR base)
-                                    </div>
-                                )}
                             </div>
 
                             <div className="form-group">
@@ -410,76 +440,134 @@ function App() {
                         </div>
 
                         <div className="results-panel">
-                            <div className="card-title">
-                                <Info size={18} /> Financial Analysis
+                            <div className="tab-header-mini">
+                                <div className="card-title">
+                                    <Info size={18} /> Financial Analysis
+                                </div>
+                                <div className="view-toggle">
+                                    <button
+                                        className={`mini-tab ${viewMode === 'summary' ? 'active' : ''}`}
+                                        onClick={() => setViewMode('summary')}
+                                    >
+                                        5-Year Summary
+                                    </button>
+                                    <button
+                                        className={`mini-tab ${viewMode === 'breakdown' ? 'active' : ''}`}
+                                        onClick={() => setViewMode('breakdown')}
+                                    >
+                                        Annual Breakdown
+                                    </button>
+                                </div>
                             </div>
 
-                            <table className="results-table">
-                                <thead>
-                                    <tr>
-                                        <th>Royalty Recipient</th>
-                                        <th style={{ textAlign: 'center' }}>% Rate</th>
-                                        <th style={{ textAlign: 'right' }}>Payment / Unit</th>
-                                        <th style={{ textAlign: 'right' }}>Annual Total</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {results.royalties.map((r, i) => (
-                                        <tr key={r.name} className="royalty-row">
-                                            <td>{r.name}</td>
-                                            <td style={{ textAlign: 'center' }}>
-                                                <input
-                                                    className="editable-pct"
-                                                    type="number"
-                                                    step="0.1"
-                                                    value={r.rate * 100}
-                                                    onChange={(e) => handleRoyaltyChange(i, e.target.value)}
-                                                />%
-                                            </td>
-                                            <td style={{ textAlign: 'right' }}>
-                                                <span className="payment-badge">{formatCurrency(r.perUnit)}</span>
-                                            </td>
-                                            <td style={{ textAlign: 'right', fontWeight: 600 }}>
-                                                {formatCurrency(r.amount)}
+                            {viewMode === 'summary' ? (
+                                <table className="results-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Metric (5-Year Total)</th>
+                                            <th style={{ textAlign: 'right' }}>{currency} (Deal)</th>
+                                            <th style={{ textAlign: 'right' }}>{comparisonCurrency} (Comp)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td>Total units</td>
+                                            <td colSpan={2} style={{ textAlign: 'right', fontWeight: 'bold' }}>
+                                                {fiveYearSales.reduce((a, b) => a + b, 0).toLocaleString()}
                                             </td>
                                         </tr>
+                                        <tr>
+                                            <td>Total Revenue</td>
+                                            <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearRevenue, currency)}</td>
+                                            <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearRevenue, comparisonCurrency)}</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Total COGS</td>
+                                            <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearCogs, currency)}</td>
+                                            <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearCogs, comparisonCurrency)}</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Total Royalties</td>
+                                            <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearRoyalties, currency)}</td>
+                                            <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearRoyalties, comparisonCurrency)}</td>
+                                        </tr>
+                                        <tr className="profit-row">
+                                            <td>Net Profit</td>
+                                            <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearNetProfit, currency)}</td>
+                                            <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearNetProfit, comparisonCurrency)}</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Average Margin</td>
+                                            <td colSpan={2} style={{ textAlign: 'right', fontWeight: 'bold', color: 'var(--primary)' }}>
+                                                {results.averageMargin.toFixed(2)}%
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            ) : (
+                                <div className="breakdown-container">
+                                    <table className="results-table breakdown">
+                                        <thead>
+                                            <tr>
+                                                <th>Year</th>
+                                                <th>Units</th>
+                                                <th>COGS / Unit (EUR)</th>
+                                                <th style={{ textAlign: 'right' }}>Net Profit ({currency})</th>
+                                                <th style={{ textAlign: 'right' }}>Net Profit ({comparisonCurrency})</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {results.years.map((year) => (
+                                                <tr key={year.year}>
+                                                    <td>Year {year.year}</td>
+                                                    <td>{year.sales.toLocaleString()}</td>
+                                                    <td>€{year.cogsPerUnit.toFixed(2)}</td>
+                                                    <td style={{ textAlign: 'right' }}>{formatCurrency(year.netProfit, currency)}</td>
+                                                    <td style={{ textAlign: 'right' }}>{formatCurrency(year.netProfit, comparisonCurrency)}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+
+                            <div className="royalties-section">
+                                <div className="card-title" style={{ fontSize: '0.9rem', marginBottom: '0.5rem' }}>
+                                    Royalty Breakdown (5-Year Total)
+                                </div>
+                                <div className="royalties-grid">
+                                    {results.years.reduce((acc: Array<{ name: string; amount: number }>, year) => {
+                                        year.royalties.forEach((r, i) => {
+                                            if (!acc[i]) acc[i] = { name: r.name, amount: 0 };
+                                            acc[i].amount += r.amount;
+                                        });
+                                        return acc;
+                                    }, []).map((royalty) => (
+                                        <div key={royalty.name} className="royalty-item">
+                                            <span className="royalty-name">{royalty.name}</span>
+                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                                                <span className="royalty-amount">{formatCurrency(royalty.amount, currency)}</span>
+                                                <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>
+                                                    {formatCurrency(royalty.amount, comparisonCurrency)}
+                                                </span>
+                                            </div>
+                                        </div>
                                     ))}
-                                    <tr>
-                                        <td colSpan={3} style={{ fontWeight: 600, color: 'var(--text-dim)' }}>Total Royalties</td>
-                                        <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--danger)' }}>
-                                            {formatCurrency(results.totalRoyalties)}
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
-
-                            <div className="net-profit-card">
-                                <div>
-                                    <p style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-dim)', textTransform: 'uppercase' }}>Annual Net Profit</p>
-                                    <h2 className="net-profit-val">{formatCurrency(results.netProfit)}</h2>
-                                </div>
-                                <div style={{ textAlign: 'right' }}>
-                                    <p style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-dim)', textTransform: 'uppercase' }}>Margin</p>
-                                    <h2 style={{ color: results.profitMargin > 20 ? 'var(--success)' : 'var(--text)', fontSize: '1.5rem', fontWeight: 800 }}>
-                                        {results.profitMargin.toFixed(1)}%
-                                    </h2>
                                 </div>
                             </div>
 
-                            <div className="save-actions">
-                                <button className="btn-secondary" onClick={() => addDeal('potential')}>
-                                    <History size={18} /> Add to Potential
-                                </button>
-                                <button className="btn-primary" onClick={() => addDeal('signed')}>
-                                    <Briefcase size={18} /> Add to Signed
-                                </button>
-                            </div>
+                            <button className="btn-primary" style={{ width: '100%', marginTop: 'auto' }} onClick={() => addDeal('signed')}>
+                                <Plus size={18} /> Add to Signed Deals
+                            </button>
+                            <button className="btn-secondary" style={{ width: '100%', marginTop: '1rem' }} onClick={() => addDeal('potential')}>
+                                <Plus size={18} /> Add to Potential Deals
+                            </button>
+                        </div>
 
-                            <div className="actions">
-                                <button className="btn-secondary" onClick={() => downloadPDF(reportRef, `Anatop_Deal_${companyName || 'Draft'}`)}>
-                                    <FileDown size={18} /> Download Analysis
-                                </button>
-                            </div>
+                        <div className="actions" style={{ marginTop: '2rem', display: 'flex', justifyContent: 'flex-end' }}>
+                            <button className="btn-secondary" onClick={() => downloadPDF(reportRef, `Anatop_Deal_${companyName || 'Draft'}`)}>
+                                <FileDown size={18} /> Download Analysis Report
+                            </button>
                         </div>
                     </motion.div>
                 )}
@@ -604,19 +692,20 @@ function App() {
                                                         <button
                                                             className="icon-btn"
                                                             onClick={async () => {
-                                                                // To download a full report for a saved deal, 
+                                                                // To download a full report for a saved deal,
                                                                 // we temporarily set the calculator state
                                                                 setCompanyName(deal.companyName);
                                                                 setCountries(deal.countries);
                                                                 setInitialServiceFee(deal.initialServiceFee.toString());
                                                                 setTotalServiceFee(deal.totalServiceFee.toString());
                                                                 setTransferPriceInput(deal.transferPrice.toString());
-                                                                setForecastSalesInput(deal.forecastSales.toString());
+                                                                setForecastSalesInputs(deal.forecastSales.map(n => n.toString()));
                                                                 setSupplier(deal.supplier);
                                                                 setMedinfarCogsInput(deal.medinfarCogs.toString());
                                                                 setRoyaltyAfterCogs(deal.includesCogs);
                                                                 setRoyalties(deal.royalties);
                                                                 setCurrency(deal.currency);
+                                                                setComparisonCurrency(deal.comparisonCurrency);
                                                                 setActiveTab('calculate');
                                                                 // Wait for React to render the calculate tab
                                                                 setTimeout(() => {
@@ -641,7 +730,7 @@ function App() {
                     </motion.div>
                 )}
             </AnimatePresence>
-        </div>
+        </div >
     );
 }
 
