@@ -99,42 +99,77 @@ function App() {
 
     const reportRef = useRef<HTMLDivElement>(null);
 
+    // Data Fetching & Migration
     useEffect(() => {
         fetchFXRates().then(setRates);
 
-        // Load Deals
-        const savedDeals = localStorage.getItem('anatop_deals');
-        if (savedDeals) {
+        const fetchData = async () => {
             try {
-                const parsed = JSON.parse(savedDeals);
-                // Migrate old deals if needed (simple forecastSales to array)
-                const migrated = parsed.map((d: any) => ({
-                    ...d,
-                    forecastSales: Array.isArray(d.forecastSales) ? d.forecastSales : [d.forecastSales || 0, 0, 0, 0, 0],
-                    comparisonCurrency: d.comparisonCurrency || 'EUR',
-                    serviceFees: d.serviceFees || {
-                        signing: { amount: d.initialServiceFee || 0, year: 1 },
-                        approval: { amount: 0, year: 1 },
-                        launch: { amount: d.totalServiceFee || 0, year: 1 }
-                    },
-                    partnerSellingPrice: d.partnerSellingPrice || 0,
-                    pricingType: d.pricingType || 'Reimbursed'
-                }));
-                setDeals(migrated);
-            } catch (e) {
-                console.error("Failed to parse deals", e);
-            }
-        }
+                // 1. Fetch Deals
+                const dealsRes = await fetch('http://localhost:3001/api/deals');
+                const serverDeals = await dealsRes.json();
 
-        // Load Saved Forecasts
-        const savedF = localStorage.getItem('anatop_forecasts');
-        if (savedF) {
-            try {
-                setSavedForecasts(JSON.parse(savedF));
-            } catch (e) {
-                console.error("Failed to parse forecasts", e);
+                if (serverDeals.length > 0) {
+                    setDeals(serverDeals);
+                } else {
+                    // Migration: Server empty, check localStorage
+                    const localDeals = localStorage.getItem('anatop_deals');
+                    if (localDeals) {
+                        const parsed = JSON.parse(localDeals);
+                        // Migrate old structure
+                        const migrated = parsed.map((d: any) => ({
+                            ...d,
+                            forecastSales: Array.isArray(d.forecastSales) ? d.forecastSales : [d.forecastSales || 0, 0, 0, 0, 0],
+                            comparisonCurrency: d.comparisonCurrency || 'EUR',
+                            serviceFees: d.serviceFees || {
+                                signing: { amount: d.initialServiceFee || 0, year: 1 },
+                                approval: { amount: 0, year: 1 },
+                                launch: { amount: d.totalServiceFee || 0, year: 1 }
+                            },
+                            partnerSellingPrice: d.partnerSellingPrice || 0,
+                            pricingType: d.pricingType || 'Reimbursed'
+                        }));
+                        setDeals(migrated);
+                        // Push to server
+                        await fetch('http://localhost:3001/api/deals', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(migrated)
+                        });
+                    }
+                }
+
+                // 2. Fetch Forecasts
+                const forecastsRes = await fetch('http://localhost:3001/api/forecasts');
+                const serverForecasts = await forecastsRes.json();
+
+                if (serverForecasts.length > 0) {
+                    setSavedForecasts(serverForecasts);
+                } else {
+                    // Migration
+                    const localForecasts = localStorage.getItem('anatop_forecasts');
+                    if (localForecasts) {
+                        const parsed = JSON.parse(localForecasts);
+                        setSavedForecasts(parsed);
+                        await fetch('http://localhost:3001/api/forecasts', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(parsed)
+                        });
+                    }
+                }
+
+            } catch (err) {
+                console.error("Failed to fetch data from API. Is the server running?", err);
+                // Fallback to localStorage if server fails entirely
+                const savedDeals = localStorage.getItem('anatop_deals');
+                if (savedDeals) setDeals(JSON.parse(savedDeals));
+                const savedF = localStorage.getItem('anatop_forecasts');
+                if (savedF) setSavedForecasts(JSON.parse(savedF));
             }
-        }
+        };
+
+        fetchData();
 
         // Check Auth session
         const auth = sessionStorage.getItem('anatop_auth');
@@ -143,11 +178,29 @@ function App() {
         }
     }, []);
 
+    // Save Deals to API
     useEffect(() => {
+        if (deals.length === 0) return; // Avoid wiping server on initial empty render if logic delays
+        // Simple debounce could be added here if high traffic, but sufficient for single tenant
+        fetch('http://localhost:3001/api/deals', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(deals)
+        }).catch(e => console.error("Failed to save deals", e));
+
+        // Keep localStorage as backup/cache
         localStorage.setItem('anatop_deals', JSON.stringify(deals));
     }, [deals]);
 
+    // Save Forecasts to API
     useEffect(() => {
+        if (savedForecasts.length === 0) return;
+        fetch('http://localhost:3001/api/forecasts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(savedForecasts)
+        }).catch(e => console.error("Failed to save forecasts", e));
+
         localStorage.setItem('anatop_forecasts', JSON.stringify(savedForecasts));
     }, [savedForecasts]);
 
