@@ -1,10 +1,13 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { type Currency, type FXRates, fetchFXRates, convertPrice } from './utils/fx';
-import { calculateFiveYearProfit, DEFAULT_ROYALTIES, type RoyaltyTier, type PricingType, type ServiceFees } from './utils/calculator';
-import { FileDown, Settings, Info, Lock, Briefcase, History, Trash2, Edit, Save, Plus } from 'lucide-react';
+import { type Currency, type FXRates, fetchFXRates, convertPrice, formatRateDisplay } from './utils/fx';
+import { calculateFiveYearProfit, calculateProfitShare, DEFAULT_ROYALTIES, type RoyaltyTier, type PricingType, type ServiceFees, type FiveYearCalculationResult } from './utils/calculator';
+import { COUNTRIES, calculateTerritoryForecast, type Country } from './utils/countries';
+import { FileDown, Settings, Info, Lock, Briefcase, History, Trash2, Edit, Save, Plus, TrendingUp, RefreshCw, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+
+type DealMode = 'transfer_price' | 'profit_share';
 
 interface Deal {
     id: string;
@@ -23,6 +26,9 @@ interface Deal {
     royalties: RoyaltyTier[];
     type: 'signed' | 'potential';
     date: string;
+    dealMode: DealMode;
+    profitSharePercent: number;
+    overheadRate: number;
 }
 
 function App() {
@@ -37,7 +43,7 @@ function App() {
     const [isAuthorized, setIsAuthorized] = useState(false);
 
     // Navigation State
-    const [activeTab, setActiveTab] = useState<'signed' | 'potential' | 'calculate'>('calculate');
+    const [activeTab, setActiveTab] = useState<'signed' | 'potential' | 'calculate' | 'territory'>('calculate');
 
     // Deals State
     const [deals, setDeals] = useState<Deal[]>([]);
@@ -67,6 +73,19 @@ function App() {
     const [medinfarCogsInput, setMedinfarCogsInput] = useState<string>('1.50');
     const [royaltyAfterCogs, setRoyaltyAfterCogs] = useState<boolean>(false);
     const [royalties, setRoyalties] = useState<RoyaltyTier[]>(DEFAULT_ROYALTIES);
+
+    // New Deal Mode State
+    const [dealMode, setDealMode] = useState<DealMode>('transfer_price');
+    const [profitSharePercent, setProfitSharePercent] = useState<string>('40');
+    const [overheadRate, setOverheadRate] = useState<string>('25');
+    const [showComparison, setShowComparison] = useState<boolean>(false);
+
+    // Territory Forecast State
+    const [selectedCountries, setSelectedCountries] = useState<Country[]>([]);
+    const [prevalence, setPrevalence] = useState<string>('0.35');
+    const [caf, setCaf] = useState<string>('40');
+    const [anatopMarketShare, setAnatopMarketShare] = useState<string>('50');
+    const [anatopPrice, setAnatopPrice] = useState<string>('25');
 
     const reportRef = useRef<HTMLDivElement>(null);
 
@@ -135,7 +154,10 @@ function App() {
             includesCogs: royaltyAfterCogs,
             royalties: [...royalties],
             type: type,
-            date: new Date().toLocaleDateString()
+            date: new Date().toLocaleDateString(),
+            dealMode: dealMode,
+            profitSharePercent: parseFloat(profitSharePercent) || 40,
+            overheadRate: parseFloat(overheadRate) || 25
         };
         setDeals([...deals, newDeal]);
         setActiveTab(type);
@@ -171,6 +193,11 @@ function App() {
         return convertPrice(parseFloat(transferPriceInput) || 0, currency, 'EUR', rates);
     }, [transferPriceInput, currency, rates]);
 
+    const partnerPriceInEUR = useMemo(() => {
+        if (!rates) return parseFloat(partnerSellingPrice) || 0;
+        return convertPrice(parseFloat(partnerSellingPrice) || 0, currency, 'EUR', rates);
+    }, [partnerSellingPrice, currency, rates]);
+
     const fiveYearSales = forecastSalesInputs.map(s => parseFloat(s) || 0);
 
     const medinfarCogsInEUR = useMemo(() => {
@@ -178,10 +205,42 @@ function App() {
         return convertPrice(parseFloat(medinfarCogsInput) || 0, currency, 'EUR', rates);
     }, [medinfarCogsInput, currency, rates]);
 
+    const overheadRateDecimal = (parseFloat(overheadRate) || 25) / 100;
+    const profitShareDecimal = (parseFloat(profitSharePercent) || 40) / 100;
+
     const results = useMemo(() => {
         const customCogs = supplier === 'Medinfar' ? medinfarCogsInEUR : null;
-        return calculateFiveYearProfit(transferPriceInEUR, fiveYearSales, serviceFees, royaltyAfterCogs, customCogs, royalties);
-    }, [transferPriceInEUR, fiveYearSales, serviceFees, royaltyAfterCogs, supplier, medinfarCogsInEUR, royalties]);
+        if (dealMode === 'profit_share') {
+            return calculateProfitShare(partnerPriceInEUR, fiveYearSales, profitShareDecimal, serviceFees, customCogs, royalties, overheadRateDecimal);
+        }
+        return calculateFiveYearProfit(transferPriceInEUR, fiveYearSales, serviceFees, royaltyAfterCogs, customCogs, royalties, overheadRateDecimal, partnerPriceInEUR);
+    }, [transferPriceInEUR, partnerPriceInEUR, fiveYearSales, serviceFees, royaltyAfterCogs, supplier, medinfarCogsInEUR, royalties, dealMode, overheadRateDecimal, profitShareDecimal]);
+
+    // Comparison Results (always calculate the opposite mode for comparison)
+    const comparisonResults = useMemo((): FiveYearCalculationResult | null => {
+        if (!showComparison) return null;
+        const customCogs = supplier === 'Medinfar' ? medinfarCogsInEUR : null;
+        if (dealMode === 'profit_share') {
+            // Compare with transfer price deal
+            return calculateFiveYearProfit(transferPriceInEUR, fiveYearSales, serviceFees, royaltyAfterCogs, customCogs, royalties, overheadRateDecimal, partnerPriceInEUR);
+        }
+        // Compare with profit share
+        return calculateProfitShare(partnerPriceInEUR, fiveYearSales, profitShareDecimal, serviceFees, customCogs, royalties, overheadRateDecimal);
+    }, [showComparison, transferPriceInEUR, partnerPriceInEUR, fiveYearSales, serviceFees, royaltyAfterCogs, supplier, medinfarCogsInEUR, royalties, dealMode, overheadRateDecimal, profitShareDecimal]);
+
+    const territoryForecasts = useMemo(() => {
+        return selectedCountries.map(country => calculateTerritoryForecast(
+            country,
+            parseFloat(prevalence) || 0.35,
+            parseFloat(caf) || 40,
+            parseFloat(anatopMarketShare) || 50,
+            parseFloat(anatopPrice) || 25
+        ));
+    }, [selectedCountries, prevalence, caf, anatopMarketShare, anatopPrice]);
+
+    const totalTerritoryRevenue = useMemo(() => {
+        return territoryForecasts.reduce((sum, f) => sum + f.peakRevenue, 0);
+    }, [territoryForecasts]);
 
     const formatCurrency = (amount: number, curr: Currency = currency) => {
         let displayAmount = amount;
@@ -317,6 +376,12 @@ function App() {
                 >
                     <History size={18} /> Potential Deals
                 </button>
+                <button
+                    className={`tab-btn ${activeTab === 'territory' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('territory')}
+                >
+                    <Globe size={18} /> Territory Forecast
+                </button>
             </nav>
 
             <AnimatePresence mode="wait">
@@ -332,6 +397,18 @@ function App() {
                         <div className="input-section">
                             <div className="card-title">
                                 <Settings size={18} /> Deal Configuration
+                            </div>
+
+                            {/* FX Reference Box */}
+                            <div className="fx-reference-box">
+                                <div className="fx-header">
+                                    <RefreshCw size={14} /> Today's Exchange Rates
+                                    <span className="fx-date">{rates.lastUpdated}</span>
+                                </div>
+                                <div className="fx-rates">
+                                    <span>{formatRateDisplay(rates).eurToGbp}</span>
+                                    <span>{formatRateDisplay(rates).eurToUsd}</span>
+                                </div>
                             </div>
 
                             <div className="form-group">
@@ -354,6 +431,25 @@ function App() {
                                     placeholder="e.g. UK, Germany, France"
                                     style={{ paddingLeft: '1rem' }}
                                 />
+                            </div>
+
+                            {/* Deal Mode Toggle */}
+                            <div className="form-group">
+                                <label>Deal Structure</label>
+                                <div className="segmented-control deal-mode-toggle">
+                                    <button
+                                        className={dealMode === 'transfer_price' ? 'active' : ''}
+                                        onClick={() => setDealMode('transfer_price')}
+                                    >
+                                        <TrendingUp size={14} /> Transfer Price
+                                    </button>
+                                    <button
+                                        className={dealMode === 'profit_share' ? 'active' : ''}
+                                        onClick={() => setDealMode('profit_share')}
+                                    >
+                                        <RefreshCw size={14} /> Profit Share
+                                    </button>
+                                </div>
                             </div>
 
                             <div className="form-group">
@@ -412,18 +508,40 @@ function App() {
                                 </div>
                             </div>
 
-                            <div className="form-group">
-                                <label>Proposed Transfer Price ({currency})</label>
-                                <div className="input-wrapper">
-                                    <span className="currency-symbol">{currencySymbols[currency]}</span>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        value={transferPriceInput}
-                                        onChange={(e) => setTransferPriceInput(e.target.value)}
-                                    />
+                            {/* Conditional: Transfer Price or Profit Share % */}
+                            {dealMode === 'transfer_price' ? (
+                                <div className="form-group">
+                                    <label>Proposed Transfer Price ({currency})</label>
+                                    <div className="input-wrapper">
+                                        <span className="currency-symbol">{currencySymbols[currency]}</span>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            value={transferPriceInput}
+                                            onChange={(e) => setTransferPriceInput(e.target.value)}
+                                        />
+                                    </div>
                                 </div>
-                            </div>
+                            ) : (
+                                <div className="form-group">
+                                    <label>SLA Profit Share %</label>
+                                    <div className="input-wrapper">
+                                        <span className="currency-symbol">%</span>
+                                        <input
+                                            type="number"
+                                            step="1"
+                                            min="0"
+                                            max="100"
+                                            value={profitSharePercent}
+                                            onChange={(e) => setProfitSharePercent(e.target.value)}
+                                            placeholder="40"
+                                        />
+                                    </div>
+                                    <p style={{ fontSize: '0.7rem', color: 'var(--text-dim)', marginTop: '0.25rem' }}>
+                                        SLA receives {profitSharePercent}% of partner's gross profit
+                                    </p>
+                                </div>
+                            )}
 
                             <div className="form-group">
                                 <label>Forecast Annual Sales (Units) - 5 Year Outlook</label>
@@ -480,21 +598,39 @@ function App() {
                                 )}
                             </div>
 
+                            {dealMode === 'transfer_price' && (
+                                <div className="form-group">
+                                    <label>Royalty Logic Base</label>
+                                    <div className="toggle-group">
+                                        <button
+                                            className={`toggle-btn ${!royaltyAfterCogs ? 'active' : ''}`}
+                                            onClick={() => setRoyaltyAfterCogs(false)}
+                                        >
+                                            On Transfer Price
+                                        </button>
+                                        <button
+                                            className={`toggle-btn ${royaltyAfterCogs ? 'active' : ''}`}
+                                            onClick={() => setRoyaltyAfterCogs(true)}
+                                        >
+                                            On (TP - COGS)
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* SLA Overhead Rate - Editable */}
                             <div className="form-group">
-                                <label>Royalty Logic Base</label>
-                                <div className="toggle-group">
-                                    <button
-                                        className={`toggle-btn ${!royaltyAfterCogs ? 'active' : ''}`}
-                                        onClick={() => setRoyaltyAfterCogs(false)}
-                                    >
-                                        On Transfer Price
-                                    </button>
-                                    <button
-                                        className={`toggle-btn ${royaltyAfterCogs ? 'active' : ''}`}
-                                        onClick={() => setRoyaltyAfterCogs(true)}
-                                    >
-                                        On (TP - COGS)
-                                    </button>
+                                <label>SLA Overhead Costs (%)</label>
+                                <div className="input-wrapper">
+                                    <span className="currency-symbol">%</span>
+                                    <input
+                                        type="number"
+                                        step="1"
+                                        min="0"
+                                        max="100"
+                                        value={overheadRate}
+                                        onChange={(e) => setOverheadRate(e.target.value)}
+                                    />
                                 </div>
                             </div>
                         </div>
@@ -521,59 +657,122 @@ function App() {
                             </div>
 
                             {viewMode === 'summary' ? (
-                                <table className="results-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Metric (5-Year Total)</th>
-                                            <th style={{ textAlign: 'right' }}>{currency} (Deal)</th>
-                                            <th style={{ textAlign: 'right' }}>{comparisonCurrency} (Comp)</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr>
-                                            <td>Total units</td>
-                                            <td colSpan={2} style={{ textAlign: 'right', fontWeight: 'bold' }}>
-                                                {fiveYearSales.reduce((a, b) => a + b, 0).toLocaleString()}
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td>Total Revenue</td>
-                                            <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearRevenue, currency)}</td>
-                                            <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearRevenue, comparisonCurrency)}</td>
-                                        </tr>
-                                        <tr>
-                                            <td>Total COGS</td>
-                                            <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearCogs, currency)}</td>
-                                            <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearCogs, comparisonCurrency)}</td>
-                                        </tr>
-                                        <tr>
-                                            <td>Total Royalties</td>
-                                            <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearRoyalties, currency)}</td>
-                                            <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearRoyalties, comparisonCurrency)}</td>
-                                        </tr>
-                                        <tr className="overhead-row">
-                                            <td>SLA Overhead Costs (25%)</td>
-                                            <td style={{ textAlign: 'right' }}>{formatCurrency(results.years.reduce((s, y) => s + y.overhead, 0), currency)}</td>
-                                            <td style={{ textAlign: 'right' }}>{formatCurrency(results.years.reduce((s, y) => s + y.overhead, 0), comparisonCurrency)}</td>
-                                        </tr>
-                                        <tr>
-                                            <td>Service Fee Income</td>
-                                            <td style={{ textAlign: 'right' }}>{formatCurrency(results.years.reduce((s, y) => s + y.serviceFeeIncome, 0), currency)}</td>
-                                            <td style={{ textAlign: 'right' }}>{formatCurrency(results.years.reduce((s, y) => s + y.serviceFeeIncome, 0), comparisonCurrency)}</td>
-                                        </tr>
-                                        <tr className="profit-row">
-                                            <td>Net Profit</td>
-                                            <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearNetProfit, currency)}</td>
-                                            <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearNetProfit, comparisonCurrency)}</td>
-                                        </tr>
-                                        <tr>
-                                            <td>Average Margin</td>
-                                            <td colSpan={2} style={{ textAlign: 'right', fontWeight: 'bold', color: 'var(--primary)' }}>
-                                                {results.averageMargin.toFixed(2)}%
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
+                                <>
+                                    <table className="results-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Metric (5-Year Total)</th>
+                                                <th style={{ textAlign: 'right' }}>{currency} (Deal)</th>
+                                                <th style={{ textAlign: 'right' }}>{comparisonCurrency} (Comp)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td>Total units</td>
+                                                <td colSpan={2} style={{ textAlign: 'right', fontWeight: 'bold' }}>
+                                                    {fiveYearSales.reduce((a, b) => a + b, 0).toLocaleString()}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td>Total Revenue</td>
+                                                <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearRevenue, currency)}</td>
+                                                <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearRevenue, comparisonCurrency)}</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Total COGS</td>
+                                                <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearCogs, currency)}</td>
+                                                <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearCogs, comparisonCurrency)}</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Total Royalties</td>
+                                                <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearRoyalties, currency)}</td>
+                                                <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearRoyalties, comparisonCurrency)}</td>
+                                            </tr>
+                                            <tr className="overhead-row">
+                                                <td>SLA Overhead Costs ({overheadRate}%)</td>
+                                                <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearOverhead, currency)}</td>
+                                                <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearOverhead, comparisonCurrency)}</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Service Fee Income</td>
+                                                <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearServiceFees, currency)}</td>
+                                                <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearServiceFees, comparisonCurrency)}</td>
+                                            </tr>
+                                            <tr className="profit-row">
+                                                <td>Net Profit</td>
+                                                <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearNetProfit, currency)}</td>
+                                                <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearNetProfit, comparisonCurrency)}</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Average Margin</td>
+                                                <td colSpan={2} style={{ textAlign: 'right', fontWeight: 'bold', color: 'var(--primary)' }}>
+                                                    {results.averageMargin.toFixed(2)}%
+                                                </td>
+                                            </tr>
+                                            {/* Partner Profit Analysis */}
+                                            {results.totalPartnerProfit !== null && (
+                                                <>
+                                                    <tr style={{ borderTop: '2px solid var(--border)' }}>
+                                                        <td colSpan={3} style={{ fontWeight: 'bold', paddingTop: '1rem', color: 'var(--text-dim)' }}>
+                                                            Partner Profit Analysis
+                                                        </td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Partner Expected Revenue</td>
+                                                        <td style={{ textAlign: 'right' }}>{formatCurrency(results.years.reduce((s, y) => s + (y.partnerAnalysis?.partnerRevenue || 0), 0), currency)}</td>
+                                                        <td style={{ textAlign: 'right' }}>{formatCurrency(results.years.reduce((s, y) => s + (y.partnerAnalysis?.partnerRevenue || 0), 0), comparisonCurrency)}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Partner Cost (Pays SLA)</td>
+                                                        <td style={{ textAlign: 'right' }}>{formatCurrency(results.years.reduce((s, y) => s + (y.partnerAnalysis?.partnerCost || 0), 0), currency)}</td>
+                                                        <td style={{ textAlign: 'right' }}>{formatCurrency(results.years.reduce((s, y) => s + (y.partnerAnalysis?.partnerCost || 0), 0), comparisonCurrency)}</td>
+                                                    </tr>
+                                                    <tr className="profit-row" style={{ background: 'rgba(16, 185, 129, 0.1)' }}>
+                                                        <td>Partner Gross Margin</td>
+                                                        <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalPartnerProfit, currency)}</td>
+                                                        <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalPartnerProfit, comparisonCurrency)}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Partner Margin %</td>
+                                                        <td colSpan={2} style={{ textAlign: 'right', fontWeight: 'bold', color: '#10b981' }}>
+                                                            {(results.years[0].partnerAnalysis?.partnerMarginPercent || 0).toFixed(2)}%
+                                                        </td>
+                                                    </tr>
+                                                </>
+                                            )}
+                                        </tbody>
+                                    </table>
+
+                                    {/* Comparison Mode Toggle */}
+                                    <div className="comparison-toggle" style={{ marginTop: '1rem', padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.85rem' }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={showComparison}
+                                                onChange={(e) => setShowComparison(e.target.checked)}
+                                                style={{ accentColor: 'var(--primary)' }}
+                                            />
+                                            Show {dealMode === 'transfer_price' ? 'Profit Share' : 'Transfer Price'} comparison
+                                        </label>
+                                    </div>
+
+                                    {/* Comparison Results */}
+                                    {showComparison && comparisonResults && (
+                                        <div className="comparison-box" style={{ marginTop: '1rem', padding: '1rem', background: 'rgba(99, 102, 241, 0.1)', borderRadius: '8px', border: '1px dashed var(--primary)' }}>
+                                            <h4 style={{ fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--primary)' }}>
+                                                {dealMode === 'transfer_price' ? 'Profit Share' : 'Transfer Price'} Alternative
+                                            </h4>
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem', fontSize: '0.8rem' }}>
+                                                <span>SLA Net Profit:</span>
+                                                <span style={{ textAlign: 'right', fontWeight: 'bold' }}>{formatCurrency(comparisonResults.totalFiveYearNetProfit, currency)}</span>
+                                                <span>Partner Profit:</span>
+                                                <span style={{ textAlign: 'right', fontWeight: 'bold' }}>{formatCurrency(comparisonResults.totalPartnerProfit || 0, currency)}</span>
+                                                <span>Margin:</span>
+                                                <span style={{ textAlign: 'right', fontWeight: 'bold' }}>{comparisonResults.averageMargin.toFixed(2)}%</span>
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
                             ) : (
                                 <div className="breakdown-container">
                                     <table className="results-table breakdown">
@@ -661,103 +860,224 @@ function App() {
                                 <FileDown size={18} /> Download Analysis Report
                             </button>
                         </div>
-                    </motion.div>
-                )}
+                    </motion.div >
+                )
+                }
 
-                {(activeTab === 'signed' || activeTab === 'potential') && (
+                {
+                    (activeTab === 'signed' || activeTab === 'potential') && (
+                        <motion.div
+                            key="pipeline"
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: -20 }}
+                            className="pipeline-section"
+                        >
+                            <div className="card-title">
+                                {activeTab === 'signed' ? <Briefcase size={18} /> : <History size={18} />}
+                                {activeTab === 'signed' ? 'Signed Deals List' : 'Potential Deals Pipeline'}
+                            </div>
+
+                            {deals.filter(d => d.type === activeTab).length === 0 ? (
+                                <div style={{ textAlign: 'center', padding: '3rem', background: 'var(--bg-secondary)', borderRadius: '12px' }}>
+                                    <p style={{ color: 'var(--text-dim)' }}>No deals found in this category.</p>
+                                </div>
+                            ) : (
+                                <div className="deals-table-container">
+                                    <table className="deals-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Company/Country</th>
+                                                <th>Total Service Fees</th>
+                                                <th>Transfer Price</th>
+                                                <th>Incl. COGS?</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {deals.filter(d => d.type === activeTab).map(deal => {
+                                                const totalFees = deal.serviceFees.signing.amount + deal.serviceFees.approval.amount + deal.serviceFees.launch.amount;
+                                                return (
+                                                    <tr key={deal.id}>
+                                                        <td>
+                                                            <div style={{ fontWeight: 700 }}>{deal.companyName}</div>
+                                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>{deal.countries}</div>
+                                                        </td>
+                                                        <td>
+                                                            <div style={{ fontSize: '0.9rem' }}>
+                                                                {formatCurrency(totalFees, deal.currency)}
+                                                            </div>
+                                                        </td>
+                                                        <td>{formatCurrency(deal.transferPrice, deal.currency)}</td>
+                                                        <td>
+                                                            <span className={`payment-badge ${deal.includesCogs ? 'success' : ''}`}>
+                                                                {deal.includesCogs ? 'Yes' : 'No'}
+                                                            </span>
+                                                        </td>
+                                                        <td>
+                                                            <div className="action-btns">
+                                                                <button className="icon-btn" onClick={() => setEditModalDeal(deal)} title="Edit Deal (Popup)">
+                                                                    <Edit size={16} />
+                                                                </button>
+                                                                <button
+                                                                    className="icon-btn"
+                                                                    onClick={async () => {
+                                                                        setCompanyName(deal.companyName);
+                                                                        setCountries(deal.countries);
+                                                                        setServiceFees(deal.serviceFees);
+                                                                        setTransferPriceInput(deal.transferPrice.toString());
+                                                                        setPartnerSellingPrice(deal.partnerSellingPrice.toString());
+                                                                        setPricingType(deal.pricingType);
+                                                                        setForecastSalesInputs(deal.forecastSales.map(n => n.toString()));
+                                                                        setSupplier(deal.supplier);
+                                                                        setMedinfarCogsInput(deal.medinfarCogs.toString());
+                                                                        setRoyaltyAfterCogs(deal.includesCogs);
+                                                                        setRoyalties(deal.royalties);
+                                                                        setCurrency(deal.currency);
+                                                                        setComparisonCurrency(deal.comparisonCurrency);
+                                                                        setActiveTab('calculate');
+                                                                        setTimeout(() => {
+                                                                            downloadPDF(reportRef, `Anatop_Deal_${deal.companyName}`);
+                                                                        }, 100);
+                                                                    }}
+                                                                    title="Download PDF"
+                                                                >
+                                                                    <FileDown size={16} />
+                                                                </button>
+                                                                <button className="icon-btn delete" onClick={() => deleteDeal(deal.id)} title="Delete">
+                                                                    <Trash2 size={16} />
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </motion.div>
+                    )
+                }
+
+                {activeTab === 'territory' && (
                     <motion.div
-                        key="pipeline"
+                        key="territory"
                         initial={{ opacity: 0, x: 20 }}
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: -20 }}
-                        className="pipeline-section"
+                        className="territory-forecast-section"
                     >
                         <div className="card-title">
-                            {activeTab === 'signed' ? <Briefcase size={18} /> : <History size={18} />}
-                            {activeTab === 'signed' ? 'Signed Deals List' : 'Potential Deals Pipeline'}
+                            <Globe size={18} /> SLA Territory Forecast
                         </div>
 
-                        {deals.filter(d => d.type === activeTab).length === 0 ? (
-                            <div style={{ textAlign: 'center', padding: '3rem', background: 'var(--bg-secondary)', borderRadius: '12px' }}>
-                                <p style={{ color: 'var(--text-dim)' }}>No deals found in this category.</p>
+                        <div className="forecast-controls" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem', marginBottom: '2rem', padding: '1.5rem', background: 'var(--bg-secondary)', borderRadius: '12px' }}>
+                            <div className="form-group">
+                                <label>Market Size (Prevalence %)</label>
+                                <div className="input-wrapper">
+                                    <span className="currency-symbol">%</span>
+                                    <input type="number" step="0.01" value={prevalence} onChange={(e) => setPrevalence(e.target.value)} />
+                                </div>
                             </div>
-                        ) : (
-                            <div className="deals-table-container">
-                                <table className="deals-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Company/Country</th>
-                                            <th>Total Service Fees</th>
-                                            <th>Transfer Price</th>
-                                            <th>Incl. COGS?</th>
-                                            <th>Actions</th>
+                            <div className="form-group">
+                                <label>Addressable (CAF %)</label>
+                                <div className="input-wrapper">
+                                    <span className="currency-symbol">%</span>
+                                    <input type="number" step="1" value={caf} onChange={(e) => setCaf(e.target.value)} />
+                                </div>
+                            </div>
+                            <div className="form-group">
+                                <label>Anatop Market Share (%)</label>
+                                <div className="input-wrapper">
+                                    <span className="currency-symbol">%</span>
+                                    <input type="number" step="1" value={anatopMarketShare} onChange={(e) => setAnatopMarketShare(e.target.value)} />
+                                </div>
+                            </div>
+                            <div className="form-group">
+                                <label>Anatop Price (EUR)</label>
+                                <div className="input-wrapper">
+                                    <span className="currency-symbol">€</span>
+                                    <input type="number" step="1" value={anatopPrice} onChange={(e) => setAnatopPrice(e.target.value)} />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="country-selector" style={{ marginBottom: '2rem' }}>
+                            <label className="input-label" style={{ marginBottom: '0.5rem', display: 'block' }}>Choose Countries to Forecast</label>
+                            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', maxHeight: '150px', overflowY: 'auto', padding: '1rem', border: '1px solid var(--border)', borderRadius: '8px' }}>
+                                {COUNTRIES.map(country => {
+                                    const isSelected = selectedCountries.some(c => c.code === country.code);
+                                    return (
+                                        <button
+                                            key={country.code}
+                                            className={`mini-tab ${isSelected ? 'active' : ''}`}
+                                            onClick={() => {
+                                                if (isSelected) {
+                                                    setSelectedCountries(selectedCountries.filter(c => c.code !== country.code));
+                                                } else {
+                                                    setSelectedCountries([...selectedCountries, country]);
+                                                }
+                                            }}
+                                            style={{ margin: 0 }}
+                                        >
+                                            {country.name}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <div className="deals-table-container">
+                            <table className="deals-table">
+                                <thead>
+                                    <tr>
+                                        <th>Country Name</th>
+                                        <th>Population (M)</th>
+                                        <th>Market Size</th>
+                                        <th>Addressable (CAF)</th>
+                                        <th>Anatop Share</th>
+                                        <th>Anatop Price</th>
+                                        <th style={{ textAlign: 'right' }}>Peak Unit Sales</th>
+                                        <th style={{ textAlign: 'right' }}>Peak Total Revenue</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {territoryForecasts.map((f) => (
+                                        <tr key={f.country.code}>
+                                            <td>{f.country.name}</td>
+                                            <td>{f.country.population}M</td>
+                                            <td>{Math.round(f.marketSize).toLocaleString()}</td>
+                                            <td>{Math.round(f.addressable).toLocaleString()}</td>
+                                            <td>{Math.round(f.anatopShare).toLocaleString()}</td>
+                                            <td>€{parseFloat(anatopPrice).toFixed(2)}</td>
+                                            <td style={{ textAlign: 'right', fontWeight: 'bold' }}>{Math.round(f.anatopShare).toLocaleString()}</td>
+                                            <td style={{ textAlign: 'right', fontWeight: 'bold', color: 'var(--primary)' }}>
+                                                {formatCurrency(f.peakRevenue, 'EUR')}
+                                            </td>
                                         </tr>
-                                    </thead>
-                                    <tbody>
-                                        {deals.filter(d => d.type === activeTab).map(deal => {
-                                            const totalFees = deal.serviceFees.signing.amount + deal.serviceFees.approval.amount + deal.serviceFees.launch.amount;
-                                            return (
-                                                <tr key={deal.id}>
-                                                    <td>
-                                                        <div style={{ fontWeight: 700 }}>{deal.companyName}</div>
-                                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>{deal.countries}</div>
-                                                    </td>
-                                                    <td>
-                                                        <div style={{ fontSize: '0.9rem' }}>
-                                                            {formatCurrency(totalFees, deal.currency)}
-                                                        </div>
-                                                    </td>
-                                                    <td>{formatCurrency(deal.transferPrice, deal.currency)}</td>
-                                                    <td>
-                                                        <span className={`payment-badge ${deal.includesCogs ? 'success' : ''}`}>
-                                                            {deal.includesCogs ? 'Yes' : 'No'}
-                                                        </span>
-                                                    </td>
-                                                    <td>
-                                                        <div className="action-btns">
-                                                            <button className="icon-btn" onClick={() => setEditModalDeal(deal)} title="Edit Deal (Popup)">
-                                                                <Edit size={16} />
-                                                            </button>
-                                                            <button
-                                                                className="icon-btn"
-                                                                onClick={async () => {
-                                                                    setCompanyName(deal.companyName);
-                                                                    setCountries(deal.countries);
-                                                                    setServiceFees(deal.serviceFees);
-                                                                    setTransferPriceInput(deal.transferPrice.toString());
-                                                                    setPartnerSellingPrice(deal.partnerSellingPrice.toString());
-                                                                    setPricingType(deal.pricingType);
-                                                                    setForecastSalesInputs(deal.forecastSales.map(n => n.toString()));
-                                                                    setSupplier(deal.supplier);
-                                                                    setMedinfarCogsInput(deal.medinfarCogs.toString());
-                                                                    setRoyaltyAfterCogs(deal.includesCogs);
-                                                                    setRoyalties(deal.royalties);
-                                                                    setCurrency(deal.currency);
-                                                                    setComparisonCurrency(deal.comparisonCurrency);
-                                                                    setActiveTab('calculate');
-                                                                    setTimeout(() => {
-                                                                        downloadPDF(reportRef, `Anatop_Deal_${deal.companyName}`);
-                                                                    }, 100);
-                                                                }}
-                                                                title="Download PDF"
-                                                            >
-                                                                <FileDown size={16} />
-                                                            </button>
-                                                            <button className="icon-btn delete" onClick={() => deleteDeal(deal.id)} title="Delete">
-                                                                <Trash2 size={16} />
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
+                                    ))}
+                                    {territoryForecasts.length > 0 && (
+                                        <tr style={{ background: 'var(--bg-secondary)', fontWeight: 'bold' }}>
+                                            <td colSpan={7} style={{ textAlign: 'right', padding: '1rem' }}>Total Combined Peak Revenue:</td>
+                                            <td style={{ textAlign: 'right', padding: '1rem', color: 'var(--primary)', fontSize: '1.1rem' }}>
+                                                {formatCurrency(totalTerritoryRevenue, 'EUR')}
+                                            </td>
+                                        </tr>
+                                    )}
+                                    {territoryForecasts.length === 0 && (
+                                        <tr>
+                                            <td colSpan={8} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-dim)' }}>
+                                                Please select countries above to see the territory forecast.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
                     </motion.div>
                 )}
-            </AnimatePresence>
+            </AnimatePresence >
 
             <AnimatePresence>
                 {editModalDeal && (

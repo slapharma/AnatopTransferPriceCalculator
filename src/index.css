@@ -576,6 +576,7 @@ input:focus {
     color: var(--primary);
     font-size: 0.85rem;
 }
+
 /* Layout V2 */
 .app-card {
     max-width: 1800px !important;
@@ -640,7 +641,7 @@ input:focus {
 .segmented-control button.active {
     background: white;
     color: var(--primary);
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 /* Modal */
@@ -650,7 +651,7 @@ input:focus {
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0,0,0,0.5);
+    background: rgba(0, 0, 0, 0.5);
     backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
@@ -666,7 +667,7 @@ input:focus {
     border-radius: 16px;
     padding: 2rem;
     overflow-y: auto;
-    box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
 }
 
 .modal-header {
@@ -679,7 +680,163 @@ input:focus {
 }
 
 .overhead-row td {
-    color: #6366f1; /* Indigo for overhead */
+    color: #6366f1;
+    /* Indigo for overhead */
     font-weight: 600;
     background: rgba(99, 102, 241, 0.05);
+}
+
+/* FX Reference Box */
+.fx-reference-box {
+    background: linear-gradient(135deg, rgba(255, 85, 0, 0.05), rgba(99, 102, 241, 0.05));
+    border: 1px solid rgba(255, 85, 0, 0.2);
+    border-radius: 12px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+}
+
+.fx-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--primary);
+    margin-bottom: 0.5rem;
+}
+
+.fx-date {
+    margin-left: auto;
+    color: var(--text-dim);
+    font-weight: 400;
+}
+
+.fx-rates {
+    display: flex;
+    gap: 1.5rem;
+    font-size: 0.7rem;
+    color: var(--text);
+}
+
+.fx-rates span {
+    background: rgba(255, 255, 255, 0.8);
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    font-family: monospace;
+}
+
+/* Deal Mode Toggle */
+.deal-mode-toggle {
+    background: var(--bg-secondary);
+    border: 2px solid var(--primary);
+}
+
+.deal-mode-toggle button {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-weight: 600;
+}
+
+.deal-mode-toggle button.active {
+    background: var(--primary);
+    color: white;
+}
+
+/* Comparison Box */
+.comparison-box {
+    animation: fadeIn 0.3s ease-out;
+}
+
+.comparison-toggle {
+    transition: background 0.2s ease;
+}
+
+.comparison-toggle:hover {
+    background: rgba(255, 85, 0, 0.1);
+}
+
+/* Breakdown Container */
+.breakdown-container {
+    overflow-x: auto;
+}
+
+.breakdown-container table {
+    min-width: 600px;
+}
+
+/* Partner Analysis Rows */
+.partner-analysis-header td {
+    border-top: 2px solid var(--border);
+    padding-top: 1rem;
+    font-weight: 700;
+    color: var(--text-dim);
+}
+
+.partner-profit-row td {
+    background: rgba(16, 185, 129, 0.08);
+    color: #10b981;
+    font-weight: 600;
+}
+
+/* Wider V2 Layout Adjustment */
+@media (min-width: 1400px) {
+    #root {
+        max-width: 1600px;
+    }
+
+    .app-card {
+        padding: 2.5rem;
+    }
+
+    .grid-v2 {
+        grid-template-columns: minmax(400px, 1fr) minmax(500px, 1.5fr);
+    }
+}
+
+@media (min-width: 1800px) {
+    #root {
+        max-width: 1800px;
+    }
+}
+
+/* Animation for new elements */
+@keyframes slideInRight {
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.comparison-box {
+    animation: slideInRight 0.3s ease-out;
+}
+
+/* Print/PDF Styles */
+@media print {
+    .app-card {
+        box-shadow: none;
+        border: none;
+        padding: 1rem;
+    }
+
+    .tabs-nav,
+    .comparison-toggle,
+    .btn-primary,
+    .btn-secondary {
+        display: none !important;
+    }
+
+    .results-table {
+        font-size: 10pt;
+    }
+
+    .fx-reference-box {
+        break-inside: avoid;
+    }
 }

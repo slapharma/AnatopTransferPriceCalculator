@@ -4,6 +4,7 @@ export interface FXRates {
     EUR: number;
     GBP: number;
     USD: number;
+    lastUpdated: string;
 }
 
 // Fallback rates if API fails (approximate as of early 2026)
@@ -11,6 +12,7 @@ const FALLBACK_RATES: FXRates = {
     EUR: 1,
     GBP: 0.83,
     USD: 1.08,
+    lastUpdated: 'Fallback'
 };
 
 export async function fetchFXRates(): Promise<FXRates> {
@@ -22,6 +24,7 @@ export async function fetchFXRates(): Promise<FXRates> {
             EUR: 1,
             GBP: data.rates.GBP || FALLBACK_RATES.GBP,
             USD: data.rates.USD || FALLBACK_RATES.USD,
+            lastUpdated: data.time_last_update_utc ? new Date(data.time_last_update_utc).toLocaleDateString() : new Date().toLocaleDateString()
         };
     } catch (error) {
         console.error('Error fetching FX rates, using fallbacks:', error);
@@ -37,4 +40,12 @@ export function convertPrice(amount: number, from: Currency, to: Currency, rates
 
     // Convert from EUR to target
     return amountInEUR * rates[to];
+}
+
+export function formatRateDisplay(rates: FXRates): { eurToGbp: string; eurToUsd: string; gbpToUsd: string } {
+    return {
+        eurToGbp: `1 EUR = ${rates.GBP.toFixed(4)} GBP`,
+        eurToUsd: `1 EUR = ${rates.USD.toFixed(4)} USD`,
+        gbpToUsd: `1 GBP = ${(rates.USD / rates.GBP).toFixed(4)} USD`
+    };
 }
