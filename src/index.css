@@ -576,3 +576,110 @@ input:focus {
     color: var(--primary);
     font-size: 0.85rem;
 }
+/* Layout V2 */
+.app-card {
+    max-width: 1800px !important;
+    margin: 2rem auto;
+    padding: 2.5rem;
+}
+
+.grid-v2 {
+    display: grid;
+    grid-template-columns: 1fr 1.5fr 1fr;
+    gap: 2rem;
+    align-items: start;
+}
+
+@media (max-width: 1400px) {
+    .grid-v2 {
+        grid-template-columns: 1fr 1.5fr;
+    }
+}
+
+@media (max-width: 1000px) {
+    .grid-v2 {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Service Fees Grid */
+.fees-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.fee-row {
+    display: contents;
+}
+
+/* Pricing Toggle */
+.segmented-control {
+    display: flex;
+    background: var(--bg-secondary);
+    padding: 2px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    margin-bottom: 1rem;
+}
+
+.segmented-control button {
+    flex: 1;
+    padding: 8px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.segmented-control button.active {
+    background: white;
+    color: var(--primary);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* Modal */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.5);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: white;
+    width: 90%;
+    max-width: 1000px;
+    max-height: 90vh;
+    border-radius: 16px;
+    padding: 2rem;
+    overflow-y: auto;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 1rem;
+}
+
+.overhead-row td {
+    color: #6366f1; /* Indigo for overhead */
+    font-weight: 600;
+    background: rgba(99, 102, 241, 0.05);
+}

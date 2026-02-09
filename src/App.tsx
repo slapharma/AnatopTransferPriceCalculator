@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { type Currency, type FXRates, fetchFXRates, convertPrice } from './utils/fx';
-import { calculateFiveYearProfit, DEFAULT_ROYALTIES, type RoyaltyTier } from './utils/calculator';
+import { calculateFiveYearProfit, DEFAULT_ROYALTIES, type RoyaltyTier, type PricingType, type ServiceFees } from './utils/calculator';
 import { FileDown, Settings, Info, Lock, Briefcase, History, Trash2, Edit, Save, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import jsPDF from 'jspdf';
@@ -10,12 +10,13 @@ interface Deal {
     id: string;
     companyName: string;
     countries: string;
-    initialServiceFee: number;
-    totalServiceFee: number;
+    serviceFees: ServiceFees;
     currency: Currency;
     comparisonCurrency: Currency;
     transferPrice: number;
-    forecastSales: number[]; // 5-year array
+    partnerSellingPrice: number;
+    pricingType: PricingType;
+    forecastSales: number[];
     supplier: 'CPM' | 'Medinfar';
     medinfarCogs: number;
     includesCogs: boolean;
@@ -40,22 +41,32 @@ function App() {
 
     // Deals State
     const [deals, setDeals] = useState<Deal[]>([]);
-    const [editingDealId, setEditingDealId] = useState<string | null>(null);
 
     // Calculator Extra Fields
     const [companyName, setCompanyName] = useState('');
     const [countries, setCountries] = useState('');
-    const [initialServiceFee, setInitialServiceFee] = useState('');
-    const [totalServiceFee, setTotalServiceFee] = useState('');
+
+    // Expanded Service Fees
+    const [serviceFees, setServiceFees] = useState<ServiceFees>({
+        signing: { amount: 0, year: 1 },
+        approval: { amount: 0, year: 1 },
+        launch: { amount: 0, year: 1 }
+    });
+
+    // Partner Pricing
+    const [partnerSellingPrice, setPartnerSellingPrice] = useState<string>('0.00');
+    const [pricingType, setPricingType] = useState<PricingType>('Reimbursed');
+
+    // UI state
+    const [viewMode, setViewMode] = useState<'summary' | 'breakdown'>('summary');
+    const [selectedRoyaltyYear, setSelectedRoyaltyYear] = useState<number>(1);
+    const [editModalDeal, setEditModalDeal] = useState<Deal | null>(null);
 
     // Phase 2 State
     const [supplier, setSupplier] = useState<'CPM' | 'Medinfar'>('CPM');
     const [medinfarCogsInput, setMedinfarCogsInput] = useState<string>('1.50');
     const [royaltyAfterCogs, setRoyaltyAfterCogs] = useState<boolean>(false);
     const [royalties, setRoyalties] = useState<RoyaltyTier[]>(DEFAULT_ROYALTIES);
-
-    // Summary View vs Annual Breakdown
-    const [viewMode, setViewMode] = useState<'summary' | 'breakdown'>('summary');
 
     const reportRef = useRef<HTMLDivElement>(null);
 
@@ -71,7 +82,14 @@ function App() {
                 const migrated = parsed.map((d: any) => ({
                     ...d,
                     forecastSales: Array.isArray(d.forecastSales) ? d.forecastSales : [d.forecastSales || 0, 0, 0, 0, 0],
-                    comparisonCurrency: d.comparisonCurrency || 'EUR'
+                    comparisonCurrency: d.comparisonCurrency || 'EUR',
+                    serviceFees: d.serviceFees || {
+                        signing: { amount: d.initialServiceFee || 0, year: 1 },
+                        approval: { amount: 0, year: 1 },
+                        launch: { amount: d.totalServiceFee || 0, year: 1 }
+                    },
+                    partnerSellingPrice: d.partnerSellingPrice || 0,
+                    pricingType: d.pricingType || 'Reimbursed'
                 }));
                 setDeals(migrated);
             } catch (e) {
@@ -105,11 +123,12 @@ function App() {
             id: Date.now().toString(),
             companyName: companyName || 'Unnamed Company',
             countries: countries || 'N/A',
-            initialServiceFee: parseFloat(initialServiceFee) || 0,
-            totalServiceFee: parseFloat(totalServiceFee) || 0,
+            serviceFees: { ...serviceFees },
             currency: currency,
             comparisonCurrency: comparisonCurrency,
             transferPrice: parseFloat(transferPriceInput) || 0,
+            partnerSellingPrice: parseFloat(partnerSellingPrice) || 0,
+            pricingType: pricingType,
             forecastSales: forecastSalesInputs.map(s => parseFloat(s) || 0),
             supplier: supplier,
             medinfarCogs: parseFloat(medinfarCogsInput) || 0,
@@ -123,8 +142,12 @@ function App() {
         // Clear fields
         setCompanyName('');
         setCountries('');
-        setInitialServiceFee('');
-        setTotalServiceFee('');
+        setServiceFees({
+            signing: { amount: 0, year: 1 },
+            approval: { amount: 0, year: 1 },
+            launch: { amount: 0, year: 1 }
+        });
+        setPartnerSellingPrice('0.00');
     };
 
     const deleteDeal = (id: string) => {
@@ -133,8 +156,14 @@ function App() {
         }
     };
 
-    const updateDeal = (id: string, field: keyof Deal, value: any) => {
-        setDeals(deals.map(d => d.id === id ? { ...d, [field]: value } : d));
+    const handleServiceFeeChange = (key: keyof ServiceFees, subField: 'amount' | 'year', value: number) => {
+        setServiceFees(prev => ({
+            ...prev,
+            [key]: {
+                ...prev[key],
+                [subField]: value
+            }
+        }));
     };
 
     const transferPriceInEUR = useMemo(() => {
@@ -151,8 +180,8 @@ function App() {
 
     const results = useMemo(() => {
         const customCogs = supplier === 'Medinfar' ? medinfarCogsInEUR : null;
-        return calculateFiveYearProfit(transferPriceInEUR, fiveYearSales, royaltyAfterCogs, customCogs, royalties);
-    }, [transferPriceInEUR, fiveYearSales, royaltyAfterCogs, supplier, medinfarCogsInEUR, royalties]);
+        return calculateFiveYearProfit(transferPriceInEUR, fiveYearSales, serviceFees, royaltyAfterCogs, customCogs, royalties);
+    }, [transferPriceInEUR, fiveYearSales, serviceFees, royaltyAfterCogs, supplier, medinfarCogsInEUR, royalties]);
 
     const formatCurrency = (amount: number, curr: Currency = currency) => {
         let displayAmount = amount;
@@ -297,7 +326,7 @@ function App() {
                         initial={{ opacity: 0, x: -20 }}
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: 20 }}
-                        className="grid"
+                        className="grid-v2"
                         ref={reportRef}
                     >
                         <div className="input-section">
@@ -327,28 +356,59 @@ function App() {
                                 />
                             </div>
 
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                                <div className="form-group">
-                                    <label>Initial Service Fee</label>
-                                    <div className="input-wrapper">
-                                        <span className="currency-symbol">{currencySymbols[currency]}</span>
-                                        <input
-                                            type="number"
-                                            value={initialServiceFee}
-                                            onChange={(e) => setInitialServiceFee(e.target.value)}
-                                        />
-                                    </div>
+                            <div className="form-group">
+                                <label>Service Fees & Schedule</label>
+                                <div className="fees-grid">
+                                    <div className="input-label" style={{ fontSize: '0.65rem' }}>Fee Type & Amount</div>
+                                    <div className="input-label" style={{ fontSize: '0.65rem', textAlign: 'center' }}>Payment Year</div>
+
+                                    {(['signing', 'approval', 'launch'] as const).map(type => (
+                                        <div key={type} className="fee-row">
+                                            <div className="input-wrapper">
+                                                <span className="currency-symbol">{currencySymbols[currency]}</span>
+                                                <input
+                                                    type="number"
+                                                    value={serviceFees[type].amount || ''}
+                                                    onChange={(e) => handleServiceFeeChange(type, 'amount', parseFloat(e.target.value) || 0)}
+                                                    placeholder={`${type.charAt(0).toUpperCase() + type.slice(1)} Fee`}
+                                                />
+                                            </div>
+                                            <select
+                                                value={serviceFees[type].year}
+                                                onChange={(e) => handleServiceFeeChange(type, 'year', parseInt(e.target.value) as 1 | 2 | 3)}
+                                                style={{ padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)' }}
+                                            >
+                                                <option value={1}>Year 1</option>
+                                                <option value={2}>Year 2</option>
+                                                <option value={3}>Year 3</option>
+                                            </select>
+                                        </div>
+                                    ))}
                                 </div>
-                                <div className="form-group">
-                                    <label>Total Service Fee</label>
-                                    <div className="input-wrapper">
-                                        <span className="currency-symbol">{currencySymbols[currency]}</span>
-                                        <input
-                                            type="number"
-                                            value={totalServiceFee}
-                                            onChange={(e) => setTotalServiceFee(e.target.value)}
-                                        />
-                                    </div>
+                            </div>
+
+                            <div className="form-group">
+                                <label>Target Partner Pricing</label>
+                                <div className="segmented-control">
+                                    {(['Reimbursed', 'Patient Price', 'Wholesale Price'] as const).map(p => (
+                                        <button
+                                            key={p}
+                                            className={pricingType === p.split(' ')[0] ? 'active' : ''}
+                                            onClick={() => setPricingType(p.split(' ')[0] as PricingType)}
+                                        >
+                                            {p}
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="input-wrapper">
+                                    <span className="currency-symbol">{currencySymbols[currency]}</span>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        value={partnerSellingPrice}
+                                        onChange={(e) => setPartnerSellingPrice(e.target.value)}
+                                        placeholder="Enter expected selling price"
+                                    />
                                 </div>
                             </div>
 
@@ -491,6 +551,16 @@ function App() {
                                             <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearRoyalties, currency)}</td>
                                             <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearRoyalties, comparisonCurrency)}</td>
                                         </tr>
+                                        <tr className="overhead-row">
+                                            <td>SLA Overhead Costs (25%)</td>
+                                            <td style={{ textAlign: 'right' }}>{formatCurrency(results.years.reduce((s, y) => s + y.overhead, 0), currency)}</td>
+                                            <td style={{ textAlign: 'right' }}>{formatCurrency(results.years.reduce((s, y) => s + y.overhead, 0), comparisonCurrency)}</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Service Fee Income</td>
+                                            <td style={{ textAlign: 'right' }}>{formatCurrency(results.years.reduce((s, y) => s + y.serviceFeeIncome, 0), currency)}</td>
+                                            <td style={{ textAlign: 'right' }}>{formatCurrency(results.years.reduce((s, y) => s + y.serviceFeeIncome, 0), comparisonCurrency)}</td>
+                                        </tr>
                                         <tr className="profit-row">
                                             <td>Net Profit</td>
                                             <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearNetProfit, currency)}</td>
@@ -511,7 +581,9 @@ function App() {
                                             <tr>
                                                 <th>Year</th>
                                                 <th>Units</th>
-                                                <th>COGS / Unit (EUR)</th>
+                                                <th>COGS (EUR)</th>
+                                                <th>Royalty (EUR)</th>
+                                                <th>Overhead (EUR)</th>
                                                 <th style={{ textAlign: 'right' }}>Net Profit ({currency})</th>
                                                 <th style={{ textAlign: 'right' }}>Net Profit ({comparisonCurrency})</th>
                                             </tr>
@@ -522,6 +594,8 @@ function App() {
                                                     <td>Year {year.year}</td>
                                                     <td>{year.sales.toLocaleString()}</td>
                                                     <td>€{year.cogsPerUnit.toFixed(2)}</td>
+                                                    <td>{formatCurrency(year.totalRoyalties, currency)}</td>
+                                                    <td>{formatCurrency(year.overhead, currency)}</td>
                                                     <td style={{ textAlign: 'right' }}>{formatCurrency(year.netProfit, currency)}</td>
                                                     <td style={{ textAlign: 'right' }}>{formatCurrency(year.netProfit, comparisonCurrency)}</td>
                                                 </tr>
@@ -532,27 +606,45 @@ function App() {
                             )}
 
                             <div className="royalties-section">
-                                <div className="card-title" style={{ fontSize: '0.9rem', marginBottom: '0.5rem' }}>
-                                    Royalty Breakdown (5-Year Total)
+                                <div className="tab-header-mini" style={{ marginBottom: '1rem' }}>
+                                    <div className="card-title" style={{ fontSize: '0.9rem' }}>
+                                        Royalty Breakdown {viewMode === 'summary' ? '(5-Year Total)' : `(Year ${selectedRoyaltyYear})`}
+                                    </div>
+                                    {viewMode === 'breakdown' && (
+                                        <div style={{ display: 'flex', gap: '4px' }}>
+                                            {[1, 2, 3, 4, 5].map(y => (
+                                                <button
+                                                    key={y}
+                                                    className={`mini-tab ${selectedRoyaltyYear === y ? 'active' : ''}`}
+                                                    onClick={() => setSelectedRoyaltyYear(y)}
+                                                    style={{ padding: '2px 8px', fontSize: '0.7rem' }}
+                                                >
+                                                    Y{y}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="royalties-grid">
-                                    {results.years.reduce((acc: Array<{ name: string; amount: number }>, year) => {
-                                        year.royalties.forEach((r, i) => {
-                                            if (!acc[i]) acc[i] = { name: r.name, amount: 0 };
-                                            acc[i].amount += r.amount;
-                                        });
-                                        return acc;
-                                    }, []).map((royalty) => (
-                                        <div key={royalty.name} className="royalty-item">
-                                            <span className="royalty-name">{royalty.name}</span>
-                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                                                <span className="royalty-amount">{formatCurrency(royalty.amount, currency)}</span>
-                                                <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>
-                                                    {formatCurrency(royalty.amount, comparisonCurrency)}
-                                                </span>
+                                    {results.years[0].royalties.map((_, i) => {
+                                        const displayAmount = viewMode === 'summary'
+                                            ? results.years.reduce((sum, yr) => sum + yr.royalties[i].amount, 0)
+                                            : results.years[selectedRoyaltyYear - 1].royalties[i].amount;
+
+                                        const royaltyName = results.years[0].royalties[i].name;
+
+                                        return (
+                                            <div key={royaltyName} className="royalty-item">
+                                                <span className="royalty-name">{royaltyName}</span>
+                                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                                                    <span className="royalty-amount">{formatCurrency(displayAmount, currency)}</span>
+                                                    <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>
+                                                        {formatCurrency(displayAmount, comparisonCurrency)}
+                                                    </span>
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             </div>
 
@@ -595,139 +687,214 @@ function App() {
                                     <thead>
                                         <tr>
                                             <th>Company/Country</th>
-                                            <th>Fees (Initial/Total)</th>
+                                            <th>Total Service Fees</th>
                                             <th>Transfer Price</th>
                                             <th>Incl. COGS?</th>
                                             <th>Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {deals.filter(d => d.type === activeTab).map(deal => (
-                                            <tr key={deal.id}>
-                                                <td>
-                                                    <div style={{ fontWeight: 700 }}>
-                                                        {editingDealId === deal.id ? (
-                                                            <input
-                                                                type="text"
-                                                                value={deal.companyName}
-                                                                onChange={(e) => updateDeal(deal.id, 'companyName', e.target.value)}
-                                                                style={{ padding: '4px', height: 'auto', fontSize: '0.9rem' }}
-                                                            />
-                                                        ) : deal.companyName}
-                                                    </div>
-                                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
-                                                        {editingDealId === deal.id ? (
-                                                            <input
-                                                                type="text"
-                                                                value={deal.countries}
-                                                                onChange={(e) => updateDeal(deal.id, 'countries', e.target.value)}
-                                                                style={{ padding: '4px', height: 'auto', fontSize: '0.75rem' }}
-                                                            />
-                                                        ) : deal.countries}
-                                                    </div>
-                                                </td>
-                                                <td>
-                                                    <div style={{ fontSize: '0.9rem' }}>
-                                                        {editingDealId === deal.id ? (
-                                                            <div style={{ display: 'flex', gap: '4px' }}>
-                                                                <input
-                                                                    type="number"
-                                                                    value={deal.initialServiceFee}
-                                                                    onChange={(e) => updateDeal(deal.id, 'initialServiceFee', parseFloat(e.target.value))}
-                                                                    style={{ padding: '4px', height: 'auto', fontSize: '0.8rem', width: '60px' }}
-                                                                />
-                                                                <span>/</span>
-                                                                <input
-                                                                    type="number"
-                                                                    value={deal.totalServiceFee}
-                                                                    onChange={(e) => updateDeal(deal.id, 'totalServiceFee', parseFloat(e.target.value))}
-                                                                    style={{ padding: '4px', height: 'auto', fontSize: '0.8rem', width: '60px' }}
-                                                                />
-                                                            </div>
-                                                        ) : (
-                                                            <>
-                                                                {formatCurrency(deal.initialServiceFee, deal.currency)} /
-                                                                {formatCurrency(deal.totalServiceFee, deal.currency)}
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                </td>
-                                                <td>
-                                                    {editingDealId === deal.id ? (
-                                                        <input
-                                                            type="number"
-                                                            value={deal.transferPrice}
-                                                            onChange={(e) => updateDeal(deal.id, 'transferPrice', parseFloat(e.target.value))}
-                                                            style={{ padding: '4px', height: 'auto', fontSize: '0.9rem', width: '80px' }}
-                                                        />
-                                                    ) : formatCurrency(deal.transferPrice, deal.currency)}
-                                                </td>
-                                                <td>
-                                                    {editingDealId === deal.id ? (
-                                                        <select
-                                                            value={deal.includesCogs ? 'yes' : 'no'}
-                                                            onChange={(e) => updateDeal(deal.id, 'includesCogs', e.target.value === 'yes')}
-                                                            style={{ padding: '4px', borderRadius: '4px', border: '1px solid var(--border)' }}
-                                                        >
-                                                            <option value="yes">Yes</option>
-                                                            <option value="no">No</option>
-                                                        </select>
-                                                    ) : (
+                                        {deals.filter(d => d.type === activeTab).map(deal => {
+                                            const totalFees = deal.serviceFees.signing.amount + deal.serviceFees.approval.amount + deal.serviceFees.launch.amount;
+                                            return (
+                                                <tr key={deal.id}>
+                                                    <td>
+                                                        <div style={{ fontWeight: 700 }}>{deal.companyName}</div>
+                                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>{deal.countries}</div>
+                                                    </td>
+                                                    <td>
+                                                        <div style={{ fontSize: '0.9rem' }}>
+                                                            {formatCurrency(totalFees, deal.currency)}
+                                                        </div>
+                                                    </td>
+                                                    <td>{formatCurrency(deal.transferPrice, deal.currency)}</td>
+                                                    <td>
                                                         <span className={`payment-badge ${deal.includesCogs ? 'success' : ''}`}>
                                                             {deal.includesCogs ? 'Yes' : 'No'}
                                                         </span>
-                                                    )}
-                                                </td>
-                                                <td>
-                                                    <div className="action-btns">
-                                                        {editingDealId === deal.id ? (
-                                                            <button className="icon-btn" onClick={() => setEditingDealId(null)} title="Save">
-                                                                <Save size={16} color="var(--success)" />
-                                                            </button>
-                                                        ) : (
-                                                            <button className="icon-btn" onClick={() => setEditingDealId(deal.id)} title="Edit">
+                                                    </td>
+                                                    <td>
+                                                        <div className="action-btns">
+                                                            <button className="icon-btn" onClick={() => setEditModalDeal(deal)} title="Edit Deal (Popup)">
                                                                 <Edit size={16} />
                                                             </button>
-                                                        )}
-                                                        <button
-                                                            className="icon-btn"
-                                                            onClick={async () => {
-                                                                // To download a full report for a saved deal,
-                                                                // we temporarily set the calculator state
-                                                                setCompanyName(deal.companyName);
-                                                                setCountries(deal.countries);
-                                                                setInitialServiceFee(deal.initialServiceFee.toString());
-                                                                setTotalServiceFee(deal.totalServiceFee.toString());
-                                                                setTransferPriceInput(deal.transferPrice.toString());
-                                                                setForecastSalesInputs(deal.forecastSales.map(n => n.toString()));
-                                                                setSupplier(deal.supplier);
-                                                                setMedinfarCogsInput(deal.medinfarCogs.toString());
-                                                                setRoyaltyAfterCogs(deal.includesCogs);
-                                                                setRoyalties(deal.royalties);
-                                                                setCurrency(deal.currency);
-                                                                setComparisonCurrency(deal.comparisonCurrency);
-                                                                setActiveTab('calculate');
-                                                                // Wait for React to render the calculate tab
-                                                                setTimeout(() => {
-                                                                    downloadPDF(reportRef, `Anatop_Deal_${deal.companyName}`);
-                                                                }, 100);
-                                                            }}
-                                                            title="Download PDF"
-                                                        >
-                                                            <FileDown size={16} />
-                                                        </button>
-                                                        <button className="icon-btn delete" onClick={() => deleteDeal(deal.id)} title="Delete">
-                                                            <Trash2 size={16} />
-                                                        </button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        ))}
+                                                            <button
+                                                                className="icon-btn"
+                                                                onClick={async () => {
+                                                                    setCompanyName(deal.companyName);
+                                                                    setCountries(deal.countries);
+                                                                    setServiceFees(deal.serviceFees);
+                                                                    setTransferPriceInput(deal.transferPrice.toString());
+                                                                    setPartnerSellingPrice(deal.partnerSellingPrice.toString());
+                                                                    setPricingType(deal.pricingType);
+                                                                    setForecastSalesInputs(deal.forecastSales.map(n => n.toString()));
+                                                                    setSupplier(deal.supplier);
+                                                                    setMedinfarCogsInput(deal.medinfarCogs.toString());
+                                                                    setRoyaltyAfterCogs(deal.includesCogs);
+                                                                    setRoyalties(deal.royalties);
+                                                                    setCurrency(deal.currency);
+                                                                    setComparisonCurrency(deal.comparisonCurrency);
+                                                                    setActiveTab('calculate');
+                                                                    setTimeout(() => {
+                                                                        downloadPDF(reportRef, `Anatop_Deal_${deal.companyName}`);
+                                                                    }, 100);
+                                                                }}
+                                                                title="Download PDF"
+                                                            >
+                                                                <FileDown size={16} />
+                                                            </button>
+                                                            <button className="icon-btn delete" onClick={() => deleteDeal(deal.id)} title="Delete">
+                                                                <Trash2 size={16} />
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
                                     </tbody>
                                 </table>
                             </div>
                         )}
                     </motion.div>
+                )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+                {editModalDeal && (
+                    <div className="modal-overlay" onClick={() => setEditModalDeal(null)}>
+                        <motion.div
+                            className="modal-content"
+                            onClick={e => e.stopPropagation()}
+                            initial={{ scale: 0.9, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.9, opacity: 0 }}
+                        >
+                            <div className="modal-header">
+                                <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                    <Edit size={24} color="var(--primary)" />
+                                    Update Deal: {editModalDeal.companyName}
+                                </h2>
+                                <button className="icon-btn" onClick={() => setEditModalDeal(null)}>&times;</button>
+                            </div>
+
+                            <div className="grid-v2">
+                                <div className="input-section">
+                                    <div className="form-group">
+                                        <label>Company Name</label>
+                                        <input
+                                            type="text"
+                                            value={editModalDeal.companyName}
+                                            onChange={e => setEditModalDeal({ ...editModalDeal, companyName: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Target Countries</label>
+                                        <input
+                                            type="text"
+                                            value={editModalDeal.countries}
+                                            onChange={e => setEditModalDeal({ ...editModalDeal, countries: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Transfer Price ({editModalDeal.currency})</label>
+                                        <input
+                                            type="number"
+                                            value={editModalDeal.transferPrice}
+                                            onChange={e => setEditModalDeal({ ...editModalDeal, transferPrice: parseFloat(e.target.value) || 0 })}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Forecast Sales (5 Years)</label>
+                                        <div className="sales-grid">
+                                            {editModalDeal.forecastSales.map((s, i) => (
+                                                <div key={i} className="year-input">
+                                                    <label>Y{i + 1}</label>
+                                                    <input
+                                                        type="number"
+                                                        value={s}
+                                                        onChange={e => {
+                                                            const fresh = [...editModalDeal.forecastSales];
+                                                            fresh[i] = parseFloat(e.target.value) || 0;
+                                                            setEditModalDeal({ ...editModalDeal, forecastSales: fresh });
+                                                        }}
+                                                    />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="input-section">
+                                    <div className="form-group">
+                                        <label>Service Fees Schedule</label>
+                                        {(['signing', 'approval', 'launch'] as const).map(f => (
+                                            <div key={f} className="fees-grid" style={{ marginBottom: '0.5rem' }}>
+                                                <input
+                                                    type="number"
+                                                    value={editModalDeal.serviceFees[f].amount}
+                                                    onChange={e => {
+                                                        const updated = { ...editModalDeal.serviceFees, [f]: { ...editModalDeal.serviceFees[f], amount: parseFloat(e.target.value) || 0 } };
+                                                        setEditModalDeal({ ...editModalDeal, serviceFees: updated });
+                                                    }}
+                                                    placeholder={f}
+                                                />
+                                                <select
+                                                    value={editModalDeal.serviceFees[f].year}
+                                                    onChange={e => {
+                                                        const updated = { ...editModalDeal.serviceFees, [f]: { ...editModalDeal.serviceFees[f], year: parseInt(e.target.value) } };
+                                                        setEditModalDeal({ ...editModalDeal, serviceFees: updated });
+                                                    }}
+                                                >
+                                                    <option value={1}>Year 1</option>
+                                                    <option value={2}>Year 2</option>
+                                                    <option value={3}>Year 3</option>
+                                                </select>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Partner Pricing Type</label>
+                                        <div className="segmented-control">
+                                            {(['Reimbursed', 'Patient', 'Wholesale'] as const).map(p => (
+                                                <button
+                                                    key={p}
+                                                    className={editModalDeal.pricingType === p ? 'active' : ''}
+                                                    onClick={() => setEditModalDeal({ ...editModalDeal, pricingType: p as PricingType })}
+                                                >
+                                                    {p}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <input
+                                            type="number"
+                                            value={editModalDeal.partnerSellingPrice}
+                                            onChange={e => setEditModalDeal({ ...editModalDeal, partnerSellingPrice: parseFloat(e.target.value) || 0 })}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="modal-actions" style={{ marginTop: '2rem', display: 'flex', gap: '1rem' }}>
+                                <button
+                                    className="btn-primary"
+                                    style={{ flex: 1 }}
+                                    onClick={() => {
+                                        setDeals(deals.map(d => d.id === editModalDeal.id ? editModalDeal : d));
+                                        setEditModalDeal(null);
+                                    }}
+                                >
+                                    <Save size={18} /> Update Deal Analysis
+                                </button>
+                                <button
+                                    className="btn-secondary"
+                                    style={{ flex: 1 }}
+                                    onClick={() => setEditModalDeal(null)}
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
                 )}
             </AnimatePresence>
         </div >

@@ -3,6 +3,19 @@ export interface RoyaltyTier {
     rate: number;
 }
 
+export type PricingType = 'Reimbursed' | 'Patient' | 'Wholesale';
+
+export interface ServiceFee {
+    amount: number;
+    year: 1 | 2 | 3;
+}
+
+export interface ServiceFees {
+    signing: ServiceFee;
+    approval: ServiceFee;
+    launch: ServiceFee;
+}
+
 export interface CalculationResult {
     transferPricePerUnit: number;
     totalRevenue: number;
@@ -10,7 +23,9 @@ export interface CalculationResult {
     totalCogs: number;
     royalties: Array<{ name: string; amount: number; rate: number; perUnit: number }>;
     totalRoyalties: number;
+    overhead: number;
     netProfit: number;
+    serviceFeeIncome: number;
     profitPerUnit: number;
     profitMargin: number;
     royaltyBase: 'TP' | 'Profit'; // TP = Royalty on Transfer Price, Profit = Royalty on (TP - COGS)
@@ -60,7 +75,8 @@ export function calculateProfit(
     forecastSales: number,
     royaltyAfterCogs: boolean = false,
     customCogs: number | null = null,
-    customRoyalties: RoyaltyTier[] = DEFAULT_ROYALTIES
+    customRoyalties: RoyaltyTier[] = DEFAULT_ROYALTIES,
+    annualServiceFee: number = 0
 ): CalculationResult {
     const cogsPerUnit = customCogs !== null ? customCogs : getCogsForBatchSize(forecastSales);
     const totalCogs = cogsPerUnit * forecastSales;
@@ -86,7 +102,13 @@ export function calculateProfit(
     }
 
     const totalRoyalties = totalRoyaltiesPerUnit * forecastSales;
-    const netProfit = totalRevenue - totalCogs - totalRoyalties;
+
+    // SLA Overhead: 25% of the remaining profit per unit after production and final royalty
+    // Logic: (Transfer Price - COGS - Royalties) * 0.25 (per unit logic scaled by sales)
+    const netBeforeOverhead = totalRevenue - totalCogs - totalRoyalties;
+    const overhead = netBeforeOverhead > 0 ? netBeforeOverhead * 0.25 : 0;
+
+    const netProfit = netBeforeOverhead - overhead + annualServiceFee;
     const profitPerUnit = forecastSales > 0 ? netProfit / forecastSales : 0;
     const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
 
@@ -97,7 +119,9 @@ export function calculateProfit(
         totalCogs,
         royalties: royaltiesBreakdown,
         totalRoyalties,
+        overhead,
         netProfit,
+        serviceFeeIncome: annualServiceFee,
         profitPerUnit,
         profitMargin: isFinite(profitMargin) ? profitMargin : 0,
         royaltyBase: royaltyAfterCogs ? 'Profit' : 'TP'
@@ -107,15 +131,23 @@ export function calculateProfit(
 export function calculateFiveYearProfit(
     transferPrice: number,
     fiveYearSales: number[],
+    serviceFees: ServiceFees,
     royaltyAfterCogs: boolean = false,
     customCogs: number | null = null,
     customRoyalties: RoyaltyTier[] = DEFAULT_ROYALTIES
 ): FiveYearCalculationResult {
     const yearlyBreakdowns: YearlyBreakdown[] = fiveYearSales.map((sales, index) => {
-        const result = calculateProfit(transferPrice, sales, royaltyAfterCogs, customCogs, customRoyalties);
+        const yearNumber = index + 1;
+
+        let annualFee = 0;
+        if (serviceFees.signing.year === yearNumber) annualFee += serviceFees.signing.amount;
+        if (serviceFees.approval.year === yearNumber) annualFee += serviceFees.approval.amount;
+        if (serviceFees.launch.year === yearNumber) annualFee += serviceFees.launch.amount;
+
+        const result = calculateProfit(transferPrice, sales, royaltyAfterCogs, customCogs, customRoyalties, annualFee);
         return {
             ...result,
-            year: index + 1,
+            year: yearNumber,
             sales
         };
     });
