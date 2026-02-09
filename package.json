@@ -11,13 +11,16 @@
   },
   "dependencies": {
     "cors": "^2.8.6",
+    "dotenv": "^17.2.4",
     "express": "^5.2.1",
     "framer-motion": "^11.0.8",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.1.0",
     "lucide-react": "^0.344.0",
+    "mongoose": "^9.1.6",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "serverless-http": "^4.0.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.64",

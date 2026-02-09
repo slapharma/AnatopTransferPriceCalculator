@@ -106,7 +106,7 @@ function App() {
         const fetchData = async () => {
             try {
                 // 1. Fetch Deals
-                const dealsRes = await fetch('http://localhost:3001/api/deals');
+                const dealsRes = await fetch('/api/deals');
                 const serverDeals = await dealsRes.json();
 
                 if (serverDeals.length > 0) {
@@ -131,7 +131,7 @@ function App() {
                         }));
                         setDeals(migrated);
                         // Push to server
-                        await fetch('http://localhost:3001/api/deals', {
+                        await fetch('/api/deals', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(migrated)
@@ -140,7 +140,7 @@ function App() {
                 }
 
                 // 2. Fetch Forecasts
-                const forecastsRes = await fetch('http://localhost:3001/api/forecasts');
+                const forecastsRes = await fetch('/api/forecasts');
                 const serverForecasts = await forecastsRes.json();
 
                 if (serverForecasts.length > 0) {
@@ -151,7 +151,7 @@ function App() {
                     if (localForecasts) {
                         const parsed = JSON.parse(localForecasts);
                         setSavedForecasts(parsed);
-                        await fetch('http://localhost:3001/api/forecasts', {
+                        await fetch('/api/forecasts', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(parsed)
@@ -182,7 +182,7 @@ function App() {
     useEffect(() => {
         if (deals.length === 0) return; // Avoid wiping server on initial empty render if logic delays
         // Simple debounce could be added here if high traffic, but sufficient for single tenant
-        fetch('http://localhost:3001/api/deals', {
+        fetch('/api/deals', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(deals)
@@ -195,7 +195,7 @@ function App() {
     // Save Forecasts to API
     useEffect(() => {
         if (savedForecasts.length === 0) return;
-        fetch('http://localhost:3001/api/forecasts', {
+        fetch('/api/forecasts', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(savedForecasts)

@@ -1,41 +1,59 @@
-require('dotenv').config();
 const express = require('express');
+const serverless = require('serverless-http');
 const mongoose = require('mongoose');
 const cors = require('cors');
 
 const app = express();
-const PORT = 3001;
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
 // MongoDB Connection
-mongoose.connect(process.env.MONGODB_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-})
-    .then(() => console.log('Connected to MongoDB'))
-    .catch(err => console.error('MongoDB connection error:', err));
+let isConnected = false;
 
-// Mongoose Schemas (matches netlify/functions/api.js)
+const connectToDatabase = async () => {
+    if (isConnected) {
+        return;
+    }
+
+    try {
+        const db = await mongoose.connect(process.env.MONGODB_URI, {
+            useNewUrlParser: true,
+            useUnifiedTopology: true,
+        });
+        isConnected = db.connections[0].readyState;
+        console.log('Connected to MongoDB');
+    } catch (error) {
+        console.error('Error connecting to MongoDB:', error);
+        throw error;
+    }
+};
+
+// Mongoose Schemas
 const DealSchema = new mongoose.Schema({
     id: String,
     companyName: String,
-    type: String,
+    type: String, // 'signed' or 'potential'
     dateAdded: String,
-    dealMode: String,
+    dealMode: String, // 'transfer_price' or 'profit_share'
     isMedinfar: Boolean,
     medinfarCogs: Number,
     royaltyAfterCogs: Boolean,
     dealCurrency: String,
     comparisonCurrency: String,
+
+    // Core Financials
     transferPrice: Number,
     partnerSellingPrice: Number,
     pricingType: String,
+
+    // Profit Share Specific
     profitSharePercent: Number,
     overheadRate: Number,
-    forecastSales: [Number],
+
+    // Forecasts
+    forecastSales: [Number], // [Y1, Y2, Y3, Y4, Y5]
     countryBreakdown: [{
         id: String,
         country: {
@@ -46,17 +64,21 @@ const DealSchema = new mongoose.Schema({
         },
         years: [Number]
     }],
+
+    // Service Fees
     serviceFees: {
         signing: { amount: Number, year: Number },
         approval: { amount: Number, year: Number },
         launch: { amount: Number, year: Number }
     },
+
+    // Royalties
     royalties: [{
         tierLimit: Number,
         rate: Number
     }],
-    countries: String
-}, { strict: false });
+    countries: String // Display string
+}, { strict: false }); // Allow flexibility for now
 
 const ForecastSchema = new mongoose.Schema({
     id: String,
@@ -75,11 +97,13 @@ const ForecastSchema = new mongoose.Schema({
 const Deal = mongoose.models.Deal || mongoose.model('Deal', DealSchema);
 const Forecast = mongoose.models.Forecast || mongoose.model('Forecast', ForecastSchema);
 
-// Reuse the router logic? Just define routes directly here for simplicity
+// API Routes
 const router = express.Router();
 
+// GET /api/deals
 router.get('/deals', async (req, res) => {
     try {
+        await connectToDatabase();
         const deals = await Deal.find({});
         res.json(deals);
     } catch (error) {
@@ -88,8 +112,12 @@ router.get('/deals', async (req, res) => {
     }
 });
 
+// POST /api/deals (Overwrite all - simplified for this app)
 router.post('/deals', async (req, res) => {
     try {
+        await connectToDatabase();
+        // For this simple app, we replace all deals to keep sync simple
+        // In a real app, you'd update individual items
         await Deal.deleteMany({});
         if (req.body.length > 0) {
             await Deal.insertMany(req.body);
@@ -101,8 +129,10 @@ router.post('/deals', async (req, res) => {
     }
 });
 
+// GET /api/forecasts
 router.get('/forecasts', async (req, res) => {
     try {
+        await connectToDatabase();
         const forecasts = await Forecast.find({});
         res.json(forecasts);
     } catch (error) {
@@ -111,8 +141,10 @@ router.get('/forecasts', async (req, res) => {
     }
 });
 
+// POST /api/forecasts
 router.post('/forecasts', async (req, res) => {
     try {
+        await connectToDatabase();
         await Forecast.deleteMany({});
         if (req.body.length > 0) {
             await Forecast.insertMany(req.body);
@@ -124,8 +156,8 @@ router.post('/forecasts', async (req, res) => {
     }
 });
 
-app.use('/api', router);
+// Mount router at /api
+app.use('/api', router); // Local express usage
+app.use('/.netlify/functions/api', router); // Netlify usage
 
-app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-});
+module.exports.handler = serverless(app);
