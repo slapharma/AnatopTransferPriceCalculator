@@ -36,7 +36,7 @@ function App() {
     const [currency, setCurrency] = useState<Currency>('EUR');
     const [comparisonCurrency, setComparisonCurrency] = useState<Currency>('GBP');
     const [transferPriceInput, setTransferPriceInput] = useState<string>('5.00');
-    const [forecastSalesInputs, setForecastSalesInputs] = useState<string[]>(['50000', '60000', '70000', '80000', '100000']);
+    const [forecastSalesInputs, setForecastSalesInputs] = useState<string[]>(['0', '0', '0', '0', '0']);
 
     // Password State
     const [password, setPassword] = useState('');
@@ -81,7 +81,8 @@ function App() {
     const [showComparison, setShowComparison] = useState<boolean>(false);
 
     // Territory Forecast State
-    const [selectedCountries, setSelectedCountries] = useState<Country[]>([]);
+    const [territoryEntries, setTerritoryEntries] = useState<{ id: string, country: Country }[]>([]);
+    const [countrySearch, setCountrySearch] = useState('');
     const [prevalence, setPrevalence] = useState<string>('0.35');
     const [caf, setCaf] = useState<string>('40');
     const [anatopMarketShare, setAnatopMarketShare] = useState<string>('50');
@@ -178,6 +179,43 @@ function App() {
         }
     };
 
+    const viewDeal = (deal: Deal) => {
+        setCompanyName(deal.companyName);
+        setCountries(deal.countries);
+        setServiceFees(deal.serviceFees);
+        setTransferPriceInput(deal.transferPrice.toString());
+        setPartnerSellingPrice(deal.partnerSellingPrice.toString());
+        setPricingType(deal.pricingType);
+        setForecastSalesInputs(deal.forecastSales.map(n => n.toString()));
+        setSupplier(deal.supplier);
+        setMedinfarCogsInput(deal.medinfarCogs.toString());
+        setRoyaltyAfterCogs(deal.includesCogs);
+        setRoyalties(deal.royalties);
+        setCurrency(deal.currency);
+        setComparisonCurrency(deal.comparisonCurrency);
+        setDealMode(deal.dealMode);
+        setProfitSharePercent(deal.profitSharePercent.toString());
+        setOverheadRate(deal.overheadRate.toString());
+        setActiveTab('calculate');
+    };
+
+    const syncForecastFromTerritory = () => {
+        const peakTotal = territoryForecasts.reduce((sum, f) => sum + f.anatopShare, 0);
+        if (peakTotal === 0) {
+            alert('No territory forecast data found. Please select countries in the Territory Forecast tab first.');
+            return;
+        }
+        // Basic ramp-up projection: 10%, 30%, 60%, 100%, 100% of peak
+        const newForecast = [
+            Math.round(peakTotal * 0.1).toString(),
+            Math.round(peakTotal * 0.3).toString(),
+            Math.round(peakTotal * 0.6).toString(),
+            Math.round(peakTotal).toString(),
+            Math.round(peakTotal).toString()
+        ];
+        setForecastSalesInputs(newForecast);
+    };
+
     const handleServiceFeeChange = (key: keyof ServiceFees, subField: 'amount' | 'year', value: number) => {
         setServiceFees(prev => ({
             ...prev,
@@ -229,14 +267,23 @@ function App() {
     }, [showComparison, transferPriceInEUR, partnerPriceInEUR, fiveYearSales, serviceFees, royaltyAfterCogs, supplier, medinfarCogsInEUR, royalties, dealMode, overheadRateDecimal, profitShareDecimal]);
 
     const territoryForecasts = useMemo(() => {
-        return selectedCountries.map(country => calculateTerritoryForecast(
-            country,
-            parseFloat(prevalence) || 0.35,
-            parseFloat(caf) || 40,
-            parseFloat(anatopMarketShare) || 50,
-            parseFloat(anatopPrice) || 25
-        ));
-    }, [selectedCountries, prevalence, caf, anatopMarketShare, anatopPrice]);
+        return territoryEntries.map(entry => ({
+            ...calculateTerritoryForecast(
+                entry.country,
+                parseFloat(prevalence) || 0.35,
+                parseFloat(caf) || 40,
+                parseFloat(anatopMarketShare) || 50,
+                parseFloat(anatopPrice) || 25
+            ),
+            id: entry.id
+        }));
+    }, [territoryEntries, prevalence, caf, anatopMarketShare, anatopPrice]);
+
+    const filteredCountries = useMemo(() => {
+        if (!countrySearch) return COUNTRIES;
+        const s = countrySearch.toLowerCase();
+        return COUNTRIES.filter(c => c.name.toLowerCase().includes(s) || c.region.toLowerCase().includes(s));
+    }, [countrySearch]);
 
     const totalTerritoryRevenue = useMemo(() => {
         return territoryForecasts.reduce((sum, f) => sum + f.peakRevenue, 0);
@@ -424,13 +471,57 @@ function App() {
 
                             <div className="form-group">
                                 <label>Target Country(s)</label>
-                                <input
-                                    type="text"
-                                    value={countries}
-                                    onChange={(e) => setCountries(e.target.value)}
-                                    placeholder="e.g. UK, Germany, France"
-                                    style={{ paddingLeft: '1rem' }}
-                                />
+                                <div className="country-multi-select" style={{ position: 'relative' }}>
+                                    <div className="selected-countries-display" style={{
+                                        padding: '0.75rem',
+                                        border: '1px solid var(--border)',
+                                        borderRadius: '8px',
+                                        minHeight: '42px',
+                                        display: 'flex',
+                                        flexWrap: 'wrap',
+                                        gap: '0.5rem',
+                                        background: 'white',
+                                        cursor: 'pointer'
+                                    }}>
+                                        {countries ? countries.split(', ').map(c => (
+                                            <span key={c} style={{
+                                                background: 'var(--primary)',
+                                                color: 'white',
+                                                padding: '2px 8px',
+                                                borderRadius: '4px',
+                                                fontSize: '0.75rem',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '4px'
+                                            }}>
+                                                {c}
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setCountries(countries.split(', ').filter(x => x !== c).join(', '));
+                                                    }}
+                                                    style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', padding: 0, fontSize: '10px' }}
+                                                >
+                                                    &times;
+                                                </button>
+                                            </span>
+                                        )) : <span style={{ color: 'var(--text-dim)', fontSize: '0.85rem' }}>Select countries...</span>}
+                                    </div>
+                                    <select
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (val && !countries.includes(val)) {
+                                                setCountries(countries ? `${countries}, ${val}` : val);
+                                            }
+                                        }}
+                                        style={{ marginTop: '0.5rem', width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)' }}
+                                    >
+                                        <option value="">+ Add Country</option>
+                                        {COUNTRIES.map(c => (
+                                            <option key={c.code} value={c.name}>{c.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
                             </div>
 
                             {/* Deal Mode Toggle */}
@@ -561,6 +652,13 @@ function App() {
                                         </div>
                                     ))}
                                 </div>
+                                <button
+                                    className="btn-secondary"
+                                    style={{ marginTop: '1rem', width: '100%', padding: '0.5rem', fontSize: '0.8rem', background: 'rgba(99, 102, 241, 0.1)', border: '1px dashed #6366f1', color: '#6366f1' }}
+                                    onClick={syncForecastFromTerritory}
+                                >
+                                    <Globe size={14} /> Insert values from Territory Forecast
+                                </button>
                             </div>
 
                             <div className="form-group">
@@ -916,6 +1014,9 @@ function App() {
                                                         </td>
                                                         <td>
                                                             <div className="action-btns">
+                                                                <button className="icon-btn" onClick={() => viewDeal(deal)} title="View in Calculator" style={{ color: 'var(--primary)' }}>
+                                                                    <TrendingUp size={16} />
+                                                                </button>
                                                                 <button className="icon-btn" onClick={() => setEditModalDeal(deal)} title="Edit Deal (Popup)">
                                                                     <Edit size={16} />
                                                                 </button>
@@ -1004,24 +1105,48 @@ function App() {
                         </div>
 
                         <div className="country-selector" style={{ marginBottom: '2rem' }}>
-                            <label className="input-label" style={{ marginBottom: '0.5rem', display: 'block' }}>Choose Countries to Forecast</label>
-                            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', maxHeight: '150px', overflowY: 'auto', padding: '1rem', border: '1px solid var(--border)', borderRadius: '8px' }}>
-                                {COUNTRIES.map(country => {
-                                    const isSelected = selectedCountries.some(c => c.code === country.code);
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                                <label className="input-label" style={{ margin: 0 }}>Choose Countries to Forecast</label>
+                                <input
+                                    type="text"
+                                    placeholder="Search country or region..."
+                                    value={countrySearch}
+                                    onChange={(e) => setCountrySearch(e.target.value)}
+                                    style={{ padding: '0.4rem 1rem', borderRadius: '20px', border: '1px solid var(--border)', fontSize: '0.8rem', width: '250px' }}
+                                />
+                            </div>
+                            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', maxHeight: '180px', overflowY: 'auto', padding: '1rem', border: '1px solid var(--border)', borderRadius: '8px', background: 'white' }}>
+                                {filteredCountries.map(country => {
+                                    const count = territoryEntries.filter(e => e.country.code === country.code).length;
                                     return (
                                         <button
                                             key={country.code}
-                                            className={`mini-tab ${isSelected ? 'active' : ''}`}
+                                            className={`mini-tab ${count > 0 ? 'active' : ''}`}
                                             onClick={() => {
-                                                if (isSelected) {
-                                                    setSelectedCountries(selectedCountries.filter(c => c.code !== country.code));
-                                                } else {
-                                                    setSelectedCountries([...selectedCountries, country]);
-                                                }
+                                                setTerritoryEntries([...territoryEntries, { id: Math.random().toString(36).substr(2, 9), country }]);
                                             }}
-                                            style={{ margin: 0 }}
+                                            style={{ margin: 0, position: 'relative' }}
                                         >
                                             {country.name}
+                                            {count > 0 && (
+                                                <span style={{
+                                                    position: 'absolute',
+                                                    top: '-8px',
+                                                    right: '-8px',
+                                                    background: 'black',
+                                                    color: 'white',
+                                                    borderRadius: '50%',
+                                                    width: '18px',
+                                                    height: '18px',
+                                                    fontSize: '10px',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    border: '2px solid white'
+                                                }}>
+                                                    {count}
+                                                </span>
+                                            )}
                                         </button>
                                     );
                                 })}
@@ -1040,11 +1165,12 @@ function App() {
                                         <th>Anatop Price</th>
                                         <th style={{ textAlign: 'right' }}>Peak Unit Sales</th>
                                         <th style={{ textAlign: 'right' }}>Peak Total Revenue</th>
+                                        <th style={{ width: '40px' }}></th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {territoryForecasts.map((f) => (
-                                        <tr key={f.country.code}>
+                                        <tr key={f.id}>
                                             <td>{f.country.name}</td>
                                             <td>{f.country.population}M</td>
                                             <td>{Math.round(f.marketSize).toLocaleString()}</td>
@@ -1054,6 +1180,14 @@ function App() {
                                             <td style={{ textAlign: 'right', fontWeight: 'bold' }}>{Math.round(f.anatopShare).toLocaleString()}</td>
                                             <td style={{ textAlign: 'right', fontWeight: 'bold', color: 'var(--primary)' }}>
                                                 {formatCurrency(f.peakRevenue, 'EUR')}
+                                            </td>
+                                            <td>
+                                                <button
+                                                    onClick={() => setTerritoryEntries(territoryEntries.filter(e => e.id !== f.id))}
+                                                    style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
                                             </td>
                                         </tr>
                                     ))}
@@ -1067,7 +1201,7 @@ function App() {
                                     )}
                                     {territoryForecasts.length === 0 && (
                                         <tr>
-                                            <td colSpan={8} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-dim)' }}>
+                                            <td colSpan={9} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-dim)' }}>
                                                 Please select countries above to see the territory forecast.
                                             </td>
                                         </tr>
@@ -1109,11 +1243,57 @@ function App() {
                                     </div>
                                     <div className="form-group">
                                         <label>Target Countries</label>
-                                        <input
-                                            type="text"
-                                            value={editModalDeal.countries}
-                                            onChange={e => setEditModalDeal({ ...editModalDeal, countries: e.target.value })}
-                                        />
+                                        <div className="country-multi-select" style={{ position: 'relative' }}>
+                                            <div className="selected-countries-display" style={{
+                                                padding: '0.5rem',
+                                                border: '1px solid var(--border)',
+                                                borderRadius: '8px',
+                                                minHeight: '36px',
+                                                display: 'flex',
+                                                flexWrap: 'wrap',
+                                                gap: '0.4rem',
+                                                background: 'white',
+                                                fontSize: '0.8rem'
+                                            }}>
+                                                {editModalDeal.countries ? editModalDeal.countries.split(', ').map(c => (
+                                                    <span key={c} style={{
+                                                        background: 'var(--primary)',
+                                                        color: 'white',
+                                                        padding: '1px 6px',
+                                                        borderRadius: '4px',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '4px'
+                                                    }}>
+                                                        {c}
+                                                        <button
+                                                            onClick={() => {
+                                                                const filtered = editModalDeal.countries.split(', ').filter(x => x !== c).join(', ');
+                                                                setEditModalDeal({ ...editModalDeal, countries: filtered });
+                                                            }}
+                                                            style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', padding: 0, fontSize: '10px' }}
+                                                        >
+                                                            &times;
+                                                        </button>
+                                                    </span>
+                                                )) : <span style={{ color: 'var(--text-dim)' }}>Select countries...</span>}
+                                            </div>
+                                            <select
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    if (val && !editModalDeal.countries.includes(val)) {
+                                                        const fresh = editModalDeal.countries ? `${editModalDeal.countries}, ${val}` : val;
+                                                        setEditModalDeal({ ...editModalDeal, countries: fresh });
+                                                    }
+                                                }}
+                                                style={{ marginTop: '0.4rem', width: '100%', padding: '0.4rem', borderRadius: '8px', border: '1px solid var(--border)' }}
+                                            >
+                                                <option value="">+ Add Country</option>
+                                                {COUNTRIES.map(c => (
+                                                    <option key={c.code} value={c.name}>{c.name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
                                     </div>
                                     <div className="form-group">
                                         <label>Transfer Price ({editModalDeal.currency})</label>
