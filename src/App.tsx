@@ -9,6 +9,12 @@ import html2canvas from 'html2canvas';
 
 type DealMode = 'transfer_price' | 'profit_share';
 
+interface CountryBreakdown {
+    id: string;
+    country: Country;
+    years: number[];
+}
+
 interface Deal {
     id: string;
     companyName: string;
@@ -29,6 +35,7 @@ interface Deal {
     dealMode: DealMode;
     profitSharePercent: number;
     overheadRate: number;
+    countryBreakdown?: CountryBreakdown[];
 }
 
 function App() {
@@ -51,6 +58,7 @@ function App() {
     // Calculator Extra Fields
     const [companyName, setCompanyName] = useState('');
     const [selectedDealCountries, setSelectedDealCountries] = useState<Country[]>([]);
+    const [countryUnitsForecast, setCountryUnitsForecast] = useState<{ [key: string]: string[] }>({});
     const [savedForecasts, setSavedForecasts] = useState<{ id: string, name: string, entries: { id: string, country: Country }[] }[]>([]);
 
     // Expanded Service Fees
@@ -154,6 +162,12 @@ function App() {
     };
 
     const addDeal = (type: 'signed' | 'potential') => {
+        const breakdown: CountryBreakdown[] = selectedDealCountries.map(c => ({
+            id: Math.random().toString(36).substr(2, 9),
+            country: c,
+            years: (countryUnitsForecast[c.code] || ['0', '0', '0', '0', '0']).map(n => parseInt(n) || 0)
+        }));
+
         const newDeal: Deal = {
             id: Date.now().toString(),
             companyName: companyName || 'Unnamed Company',
@@ -173,13 +187,15 @@ function App() {
             date: new Date().toLocaleDateString(),
             dealMode: dealMode,
             profitSharePercent: parseFloat(profitSharePercent) || 40,
-            overheadRate: parseFloat(overheadRate) || 25
+            overheadRate: parseFloat(overheadRate) || 25,
+            countryBreakdown: breakdown
         };
         setDeals([...deals, newDeal]);
         setActiveTab(type);
         // Clear fields
         setCompanyName('');
         setSelectedDealCountries([]);
+        setCountryUnitsForecast({});
         setServiceFees({
             signing: { amount: 0, year: 1 },
             approval: { amount: 0, year: 1 },
@@ -214,6 +230,15 @@ function App() {
         setDealMode(deal.dealMode);
         setProfitSharePercent(deal.profitSharePercent.toString());
         setOverheadRate(deal.overheadRate.toString());
+
+        const breakdownObj: { [key: string]: string[] } = {};
+        if (deal.countryBreakdown) {
+            deal.countryBreakdown.forEach(b => {
+                breakdownObj[b.country.code] = b.years.map(y => y.toString());
+            });
+        }
+        setCountryUnitsForecast(breakdownObj);
+
         setActiveTab('calculate');
     };
 
@@ -240,30 +265,54 @@ function App() {
         }
     };
 
-    const syncForecastFromTerritory = () => {
-        const forecasts = selectedDealCountries.map(c => calculateTerritoryForecast(
-            c,
-            parseFloat(prevalence) || 0.35,
-            parseFloat(caf) || 40,
-            parseFloat(anatopMarketShare) || 50,
-            parseFloat(anatopPrice) || 25
-        ));
+    const syncForecastFromTerritory = (forecast: { id: string, name: string, entries: { id: string, country: Country }[] }) => {
+        const countries = forecast.entries.map(e => e.country);
+        setSelectedDealCountries(countries);
 
-        const peakTotal = forecasts.reduce((sum, f) => sum + f.anatopShare, 0);
+        const newBreakdown: { [key: string]: string[] } = {};
 
-        if (peakTotal === 0) {
-            alert('Please select countries under "Target Country(s)" first.');
-            return;
-        }
-        // Basic ramp-up projection: 10%, 30%, 60%, 100%, 100% of peak
-        const newForecast = [
-            Math.round(peakTotal * 0.1).toString(),
-            Math.round(peakTotal * 0.3).toString(),
-            Math.round(peakTotal * 0.6).toString(),
-            Math.round(peakTotal).toString(),
-            Math.round(peakTotal).toString()
-        ];
-        setForecastSalesInputs(newForecast);
+        forecast.entries.forEach(entry => {
+            const result = calculateTerritoryForecast(
+                entry.country,
+                parseFloat(prevalence) || 0.35,
+                parseFloat(caf) || 40,
+                parseFloat(anatopMarketShare) || 50,
+                parseFloat(anatopPrice) || 25
+            );
+
+            const peak = Math.round(result.anatopShare);
+            const ramp = [
+                Math.round(peak * 0.1).toString(),
+                Math.round(peak * 0.3).toString(),
+                Math.round(peak * 0.6).toString(),
+                peak.toString(),
+                peak.toString()
+            ];
+            newBreakdown[entry.country.code] = ramp;
+        });
+
+        setCountryUnitsForecast(newBreakdown);
+
+        // Calculate total
+        const total = [0, 0, 0, 0, 0];
+        Object.values(newBreakdown).forEach(years => {
+            years.forEach((y, i) => total[i] += parseInt(y) || 0);
+        });
+        setForecastSalesInputs(total.map(t => t.toString()));
+    };
+
+    const handleCountryForecastChange = (code: string, yearIdx: number, val: string) => {
+        const updated = { ...countryUnitsForecast };
+        if (!updated[code]) return;
+        updated[code][yearIdx] = val;
+        setCountryUnitsForecast(updated);
+
+        // Update total
+        const total = [0, 0, 0, 0, 0];
+        Object.values(updated).forEach(years => {
+            years.forEach((y, i) => total[i] += parseInt(y) || 0);
+        });
+        setForecastSalesInputs(total.map(t => t.toString()));
     };
 
     const handleServiceFeeChange = (key: keyof ServiceFees, subField: 'amount' | 'year', value: number) => {
@@ -557,21 +606,71 @@ function App() {
                                             </span>
                                         )) : <span style={{ color: 'var(--text-dim)', fontSize: '0.85rem' }}>Select countries...</span>}
                                     </div>
-                                    <select
-                                        onChange={(e) => {
-                                            const code = e.target.value;
-                                            const country = COUNTRIES.find(c => c.code === code);
-                                            if (country && !selectedDealCountries.find(c => c.code === code)) {
-                                                setSelectedDealCountries([...selectedDealCountries, country]);
-                                            }
-                                        }}
-                                        style={{ marginTop: '0.5rem', width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)' }}
-                                    >
-                                        <option value="">+ Add Country</option>
-                                        {COUNTRIES.map(c => (
-                                            <option key={c.code} value={c.code}>{c.name}</option>
-                                        ))}
-                                    </select>
+                                    <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.5rem' }}>
+                                        <select
+                                            onChange={(e) => {
+                                                const code = e.target.value;
+                                                const country = COUNTRIES.find(c => c.code === code);
+                                                if (country && !selectedDealCountries.find(c => c.code === code)) {
+                                                    const newSelected = [...selectedDealCountries, country];
+                                                    setSelectedDealCountries(newSelected);
+                                                    if (!countryUnitsForecast[code]) {
+                                                        setCountryUnitsForecast({ ...countryUnitsForecast, [code]: ['0', '0', '0', '0', '0'] });
+                                                    }
+                                                }
+                                                e.target.value = '';
+                                            }}
+                                            style={{ flex: 1, padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)' }}
+                                        >
+                                            <option value="">+ Add Country</option>
+                                            {COUNTRIES.map(c => (
+                                                <option key={c.code} value={c.code}>{c.name}</option>
+                                            ))}
+                                        </select>
+
+                                        <div style={{ position: 'relative' }}>
+                                            <button
+                                                className="btn-secondary"
+                                                onClick={() => {
+                                                    const menu = document.getElementById('forecast-sync-menu');
+                                                    if (menu) menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+                                                }}
+                                                style={{ padding: '0.5rem 0.75rem', fontSize: '0.75rem', height: '100%', whiteSpace: 'nowrap' }}
+                                            >
+                                                <Globe size={14} /> Sync Forecast
+                                            </button>
+                                            <div id="forecast-sync-menu" style={{
+                                                display: 'none',
+                                                position: 'absolute',
+                                                top: '100%',
+                                                right: 0,
+                                                background: 'white',
+                                                border: '1px solid var(--border)',
+                                                borderRadius: '8px',
+                                                marginTop: '4px',
+                                                zIndex: 10,
+                                                minWidth: '200px',
+                                                boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+                                            }}>
+                                                <div style={{ padding: '0.5rem', borderBottom: '1px solid #f0f0f0', fontSize: '0.7rem', color: 'var(--text-dim)', fontWeight: 600 }}>CHOOSE SAVED FORECAST</div>
+                                                {savedForecasts.length > 0 ? savedForecasts.map(f => (
+                                                    <div
+                                                        key={f.id}
+                                                        onClick={() => {
+                                                            syncForecastFromTerritory(f);
+                                                            const menu = document.getElementById('forecast-sync-menu');
+                                                            if (menu) menu.style.display = 'none';
+                                                        }}
+                                                        style={{ padding: '0.6rem 1rem', cursor: 'pointer', borderBottom: '1px solid #f9f9f9', fontSize: '0.8rem' }}
+                                                        onMouseOver={(e) => (e.currentTarget.style.background = '#f5f5f5')}
+                                                        onMouseOut={(e) => (e.currentTarget.style.background = 'white')}
+                                                    >
+                                                        {f.name}
+                                                    </div>
+                                                )) : <div style={{ padding: '1rem', color: 'var(--text-dim)', fontSize: '0.8rem' }}>No saved forecasts found</div>}
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
@@ -627,26 +726,50 @@ function App() {
 
                             <div className="form-group">
                                 <label>Target Partner Pricing</label>
-                                <div className="segmented-control">
-                                    {(['Reimbursed', 'Patient Price', 'Wholesale Price'] as const).map(p => (
-                                        <button
-                                            key={p}
-                                            className={pricingType === p.split(' ')[0] ? 'active' : ''}
-                                            onClick={() => setPricingType(p.split(' ')[0] as PricingType)}
-                                        >
-                                            {p}
-                                        </button>
-                                    ))}
-                                </div>
-                                <div className="input-wrapper">
-                                    <span className="currency-symbol">{currencySymbols[currency]}</span>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        value={partnerSellingPrice}
-                                        onChange={(e) => setPartnerSellingPrice(e.target.value)}
-                                        placeholder="Enter expected selling price"
-                                    />
+                                <div className="pricing-box" style={{
+                                    display: 'flex',
+                                    alignItems: 'stretch',
+                                    border: '1px solid var(--border)',
+                                    borderRadius: '8px',
+                                    overflow: 'hidden',
+                                    background: 'white'
+                                }}>
+                                    <div className="segmented-control" style={{
+                                        border: 'none',
+                                        borderRadius: 0,
+                                        margin: 0,
+                                        padding: '4px',
+                                        background: '#f9fafb',
+                                        borderRight: '1px solid var(--border)',
+                                        display: 'flex',
+                                        gap: '2px'
+                                    }}>
+                                        {(['Reimbursed', 'Patient Price', 'Wholesale Price'] as const).map(p => (
+                                            <button
+                                                key={p}
+                                                className={pricingType === p.split(' ')[0] ? 'active' : ''}
+                                                style={{
+                                                    fontSize: '0.65rem',
+                                                    padding: '4px 10px',
+                                                    whiteSpace: 'nowrap'
+                                                }}
+                                                onClick={() => setPricingType(p.split(' ')[0] as PricingType)}
+                                            >
+                                                {p.split(' ')[0]}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <div className="input-wrapper" style={{ border: 'none', margin: 0, flex: 1 }}>
+                                        <span className="currency-symbol" style={{ left: '0.75rem' }}>{currencySymbols[currency]}</span>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            value={partnerSellingPrice}
+                                            onChange={(e) => setPartnerSellingPrice(e.target.value)}
+                                            placeholder="0.00"
+                                            style={{ border: 'none', borderRadius: 0, paddingLeft: '1.75rem' }}
+                                        />
+                                    </div>
                                 </div>
                             </div>
 
@@ -687,29 +810,54 @@ function App() {
 
                             <div className="form-group">
                                 <label>Forecast Annual Sales (Units) - 5 Year Outlook</label>
-                                <div className="sales-grid">
-                                    {forecastSalesInputs.map((val, idx) => (
-                                        <div key={idx} className="year-input">
-                                            <label>Year {idx + 1}</label>
-                                            <input
-                                                type="number"
-                                                value={val}
-                                                onChange={(e) => {
-                                                    const newInputs = [...forecastSalesInputs];
-                                                    newInputs[idx] = e.target.value;
-                                                    setForecastSalesInputs(newInputs);
-                                                }}
-                                            />
-                                        </div>
-                                    ))}
+                                <div className="forecast-breakdown-table" style={{ background: '#f9fafb', borderRadius: '12px', padding: '1rem', border: '1px solid var(--border)' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                                        <thead>
+                                            <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                                                <th style={{ textAlign: 'left', padding: '0.5rem' }}>Territory</th>
+                                                <th>Y1</th>
+                                                <th>Y2</th>
+                                                <th>Y3</th>
+                                                <th>Y4</th>
+                                                <th>Y5</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {selectedDealCountries.map(c => (
+                                                <tr key={c.code} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                                                    <td style={{ padding: '0.5rem', fontWeight: 600 }}>{c.name}</td>
+                                                    {[0, 1, 2, 3, 4].map(idx => (
+                                                        <td key={idx} style={{ padding: '0.2rem' }}>
+                                                            <input
+                                                                type="number"
+                                                                value={countryUnitsForecast[c.code]?.[idx] || '0'}
+                                                                onChange={(e) => handleCountryForecastChange(c.code, idx, e.target.value)}
+                                                                style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'center', fontSize: '0.8rem', padding: '0.2rem' }}
+                                                            />
+                                                        </td>
+                                                    ))}
+                                                </tr>
+                                            ))}
+                                            <tr style={{ background: 'white', fontWeight: 700 }}>
+                                                <td style={{ padding: '0.5rem' }}>TOTAL</td>
+                                                {forecastSalesInputs.map((val, idx) => (
+                                                    <td key={idx} style={{ padding: '0.2rem' }}>
+                                                        <input
+                                                            type="number"
+                                                            value={val}
+                                                            onChange={(e) => {
+                                                                const newInputs = [...forecastSalesInputs];
+                                                                newInputs[idx] = e.target.value;
+                                                                setForecastSalesInputs(newInputs);
+                                                            }}
+                                                            style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'center', fontWeight: 700, fontSize: '0.8rem' }}
+                                                        />
+                                                    </td>
+                                                ))}
+                                            </tr>
+                                        </tbody>
+                                    </table>
                                 </div>
-                                <button
-                                    className="btn-secondary"
-                                    style={{ marginTop: '1rem', width: '100%', padding: '0.5rem', fontSize: '0.8rem', background: 'rgba(99, 102, 241, 0.1)', border: '1px dashed #6366f1', color: '#6366f1' }}
-                                    onClick={syncForecastFromTerritory}
-                                >
-                                    <Globe size={14} /> Insert values from Territory Forecast
-                                </button>
                             </div>
 
                             <div className="form-group">
@@ -1036,40 +1184,35 @@ function App() {
                                     <table className="deals-table">
                                         <thead>
                                             <tr>
-                                                <th>Company/Country</th>
+                                                <th>Company Name</th>
+                                                <th>Countries</th>
+                                                <th>Y1 Forecast</th>
+                                                <th>Peak Units</th>
                                                 <th>Total Service Fees</th>
-                                                <th>Transfer Price</th>
-                                                <th>Incl. COGS?</th>
+                                                <th>Deal Structure</th>
                                                 <th>Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {deals.filter(d => d.type === activeTab).map(deal => {
                                                 const totalFees = deal.serviceFees.signing.amount + deal.serviceFees.approval.amount + deal.serviceFees.launch.amount;
+                                                const peakUnits = Math.max(...deal.forecastSales);
                                                 return (
                                                     <tr key={deal.id}>
+                                                        <td style={{ fontWeight: 700 }}>{deal.companyName}</td>
+                                                        <td style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>{deal.countries}</td>
+                                                        <td>{deal.forecastSales[0].toLocaleString()}</td>
+                                                        <td style={{ fontWeight: 600 }}>{peakUnits.toLocaleString()}</td>
+                                                        <td>{formatCurrency(totalFees, deal.currency)}</td>
                                                         <td>
-                                                            <div style={{ fontWeight: 700 }}>{deal.companyName}</div>
-                                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>{deal.countries}</div>
-                                                        </td>
-                                                        <td>
-                                                            <div style={{ fontSize: '0.9rem' }}>
-                                                                {formatCurrency(totalFees, deal.currency)}
-                                                            </div>
-                                                        </td>
-                                                        <td>{formatCurrency(deal.transferPrice, deal.currency)}</td>
-                                                        <td>
-                                                            <span className={`payment-badge ${deal.includesCogs ? 'success' : ''}`}>
-                                                                {deal.includesCogs ? 'Yes' : 'No'}
+                                                            <span style={{ fontSize: '0.75rem', padding: '2px 6px', borderRadius: '4px', background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
+                                                                {deal.dealMode === 'transfer_price' ? 'Transfer Price' : 'Profit Share'}
                                                             </span>
                                                         </td>
                                                         <td>
                                                             <div className="action-btns">
                                                                 <button className="icon-btn" onClick={() => viewDeal(deal)} title="View in Calculator" style={{ color: 'var(--primary)' }}>
                                                                     <TrendingUp size={16} />
-                                                                </button>
-                                                                <button className="icon-btn" onClick={() => setEditModalDeal(deal)} title="Edit Deal (Popup)">
-                                                                    <Edit size={16} />
                                                                 </button>
                                                                 <button
                                                                     className="icon-btn"
