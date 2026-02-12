@@ -98,7 +98,6 @@ export function getCogsForBatchSize(batchSize: number): number {
 export function calculateProfit(
     transferPrice: number,
     forecastSales: number,
-    royaltyAfterCogs: boolean = false,
     customCogs: number | null = null,
     customRoyalties: RoyaltyTier[] = DEFAULT_ROYALTIES,
     annualServiceFee: number = 0,
@@ -109,8 +108,8 @@ export function calculateProfit(
     const totalCogs = cogsPerUnit * forecastSales;
     const totalRevenue = transferPrice * forecastSales;
 
-    // Deduction base: Either Transfer Price or (Transfer Price - COGS)
-    const basePrice = royaltyAfterCogs ? Math.max(0, transferPrice - cogsPerUnit) : transferPrice;
+    // Royalty base: Always (Transfer Price - COGS)
+    const basePrice = Math.max(0, transferPrice - cogsPerUnit);
 
     let remainingForRoyalties = basePrice;
     const royaltiesBreakdown = [];
@@ -166,7 +165,7 @@ export function calculateProfit(
         serviceFeeIncome: annualServiceFee,
         profitPerUnit,
         profitMargin: isFinite(profitMargin) ? profitMargin : 0,
-        royaltyBase: royaltyAfterCogs ? 'Profit' : 'TP',
+        royaltyBase: 'Profit',
         partnerAnalysis
     };
 }
@@ -175,7 +174,6 @@ export function calculateFiveYearProfit(
     transferPrice: number,
     fiveYearSales: number[],
     serviceFees: ServiceFees,
-    royaltyAfterCogs: boolean = false,
     customCogs: number | null = null,
     customRoyalties: RoyaltyTier[] = DEFAULT_ROYALTIES,
     overheadRate: number = 0.25,
@@ -189,7 +187,7 @@ export function calculateFiveYearProfit(
         if (serviceFees.approval.year === yearNumber) annualFee += serviceFees.approval.amount;
         if (serviceFees.launch.year === yearNumber) annualFee += serviceFees.launch.amount;
 
-        const result = calculateProfit(transferPrice, sales, royaltyAfterCogs, customCogs, customRoyalties, annualFee, overheadRate, partnerSellingPrice);
+        const result = calculateProfit(transferPrice, sales, customCogs, customRoyalties, annualFee, overheadRate, partnerSellingPrice);
         return {
             ...result,
             year: yearNumber,
@@ -251,16 +249,16 @@ export function calculateProfitShare(
         // Partner's total revenue
         const partnerRevenue = partnerSellingPrice * sales;
         // Partner's COGS = SLA's COGS (they buy from SLA at cost + margin)
-        const totalCogs = cogsPerUnit * sales;
+        // NOTE: Per user request, SLA's share is on TOTAL Partner Revenue (gross), 
+        // and partner pays COGS separately.
+        const cogsAmount = cogsPerUnit * sales;
 
-        // Profit available to split after COGS
-        const grossProfit = partnerRevenue - totalCogs;
+        // SLA's share of the TOTAL Revenue
+        const slaGrossShare = partnerRevenue * slaSharePercent;
 
-        // SLA's share of the gross profit
-        const slaGrossShare = grossProfit * slaSharePercent;
-
-        // Calculate royalties on SLA's share
-        let remainingForRoyalties = slaGrossShare / sales; // per unit
+        // Calculate royalties based on (SLA Share Per Unit - COGS)
+        const perUnitShare = sales > 0 ? slaGrossShare / sales : 0;
+        let remainingForRoyalties = Math.max(0, perUnitShare - cogsPerUnit);
         const royaltiesBreakdown = [];
         let totalRoyaltiesPerUnit = 0;
 
@@ -289,15 +287,15 @@ export function calculateProfitShare(
         const overhead = netBeforeOverhead > 0 ? netBeforeOverhead * overheadRate : 0;
 
         const netProfit = netBeforeOverhead - overhead + annualFee;
-        const transferPricePerUnit = sales > 0 ? slaGrossShare / sales : 0;
+        const transferPricePerUnit = perUnitShare;
         const profitPerUnit = sales > 0 ? netProfit / sales : 0;
         const profitMargin = slaGrossShare > 0 ? (netProfit / slaGrossShare) * 100 : 0;
 
-        // Partner analysis (they keep the rest)
-        const partnerMargin = grossProfit * (1 - slaSharePercent);
+        // Partner analysis (they keep the rest minus their COGS expense)
+        const partnerMargin = (partnerRevenue - slaGrossShare) - cogsAmount;
         const partnerAnalysis: PartnerProfitAnalysis = {
             partnerRevenue,
-            partnerCost: totalCogs + slaGrossShare, // COGS + SLA's share
+            partnerCost: cogsAmount + slaGrossShare, // What they "pay" out
             partnerMargin,
             partnerMarginPercent: partnerRevenue > 0 ? (partnerMargin / partnerRevenue) * 100 : 0
         };
@@ -306,7 +304,7 @@ export function calculateProfitShare(
             transferPricePerUnit,
             totalRevenue: slaGrossShare,
             cogsPerUnit,
-            totalCogs,
+            totalCogs: cogsAmount,
             royalties: royaltiesBreakdown,
             totalRoyalties,
             overhead,

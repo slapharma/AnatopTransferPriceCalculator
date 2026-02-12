@@ -28,7 +28,6 @@ interface Deal {
     forecastSales: number[];
     supplier: 'CPM' | 'Medinfar';
     medinfarCogs: number;
-    includesCogs: boolean;
     royalties: RoyaltyTier[];
     type: 'signed' | 'potential';
     date: string;
@@ -80,7 +79,6 @@ function App() {
     // Phase 2 State
     const [supplier, setSupplier] = useState<'CPM' | 'Medinfar'>('CPM');
     const [medinfarCogsInput, setMedinfarCogsInput] = useState<string>('1.50');
-    const [royaltyAfterCogs, setRoyaltyAfterCogs] = useState<boolean>(false);
     const [royalties, setRoyalties] = useState<RoyaltyTier[]>(DEFAULT_ROYALTIES);
 
     // New Deal Mode State
@@ -234,7 +232,6 @@ function App() {
             forecastSales: forecastSalesInputs.map(s => parseFloat(s) || 0),
             supplier: supplier,
             medinfarCogs: parseFloat(medinfarCogsInput) || 0,
-            includesCogs: royaltyAfterCogs,
             royalties: [...royalties],
             type: type,
             date: new Date().toLocaleDateString(),
@@ -276,7 +273,6 @@ function App() {
         setForecastSalesInputs(deal.forecastSales.map(n => n.toString()));
         setSupplier(deal.supplier);
         setMedinfarCogsInput(deal.medinfarCogs.toString());
-        setRoyaltyAfterCogs(deal.includesCogs);
         setRoyalties(deal.royalties);
         setCurrency(deal.currency);
         setComparisonCurrency(deal.comparisonCurrency);
@@ -403,8 +399,8 @@ function App() {
         if (dealMode === 'profit_share') {
             return calculateProfitShare(partnerPriceInEUR, fiveYearSales, profitShareDecimal, serviceFees, customCogs, royalties, overheadRateDecimal);
         }
-        return calculateFiveYearProfit(transferPriceInEUR, fiveYearSales, serviceFees, royaltyAfterCogs, customCogs, royalties, overheadRateDecimal, partnerPriceInEUR);
-    }, [transferPriceInEUR, partnerPriceInEUR, fiveYearSales, serviceFees, royaltyAfterCogs, supplier, medinfarCogsInEUR, royalties, dealMode, overheadRateDecimal, profitShareDecimal]);
+        return calculateFiveYearProfit(transferPriceInEUR, fiveYearSales, serviceFees, customCogs, royalties, overheadRateDecimal, partnerPriceInEUR);
+    }, [transferPriceInEUR, partnerPriceInEUR, fiveYearSales, serviceFees, supplier, medinfarCogsInEUR, royalties, dealMode, overheadRateDecimal, profitShareDecimal]);
 
     // Comparison Results (always calculate the opposite mode for comparison)
     const comparisonResults = useMemo((): FiveYearCalculationResult | null => {
@@ -412,11 +408,11 @@ function App() {
         const customCogs = supplier === 'Medinfar' ? medinfarCogsInEUR : null;
         if (dealMode === 'profit_share') {
             // Compare with transfer price deal
-            return calculateFiveYearProfit(transferPriceInEUR, fiveYearSales, serviceFees, royaltyAfterCogs, customCogs, royalties, overheadRateDecimal, partnerPriceInEUR);
+            return calculateFiveYearProfit(transferPriceInEUR, fiveYearSales, serviceFees, customCogs, royalties, overheadRateDecimal, partnerPriceInEUR);
         }
         // Compare with profit share
         return calculateProfitShare(partnerPriceInEUR, fiveYearSales, profitShareDecimal, serviceFees, customCogs, royalties, overheadRateDecimal);
-    }, [showComparison, transferPriceInEUR, partnerPriceInEUR, fiveYearSales, serviceFees, royaltyAfterCogs, supplier, medinfarCogsInEUR, royalties, dealMode, overheadRateDecimal, profitShareDecimal]);
+    }, [showComparison, transferPriceInEUR, partnerPriceInEUR, fiveYearSales, serviceFees, supplier, medinfarCogsInEUR, royalties, dealMode, overheadRateDecimal, profitShareDecimal]);
 
     const territoryForecasts = useMemo(() => {
         return territoryEntries.map(entry => ({
@@ -431,11 +427,15 @@ function App() {
         }));
     }, [territoryEntries, prevalence, caf, anatopMarketShare, anatopPrice]);
 
+    const sortedCountries = useMemo(() => {
+        return [...COUNTRIES].sort((a, b) => a.name.localeCompare(b.name));
+    }, []);
+
     const filteredCountries = useMemo(() => {
-        if (!countrySearch) return COUNTRIES;
+        if (!countrySearch) return sortedCountries;
         const s = countrySearch.toLowerCase();
-        return COUNTRIES.filter(c => c.name.toLowerCase().includes(s) || c.region.toLowerCase().includes(s));
-    }, [countrySearch]);
+        return sortedCountries.filter(c => c.name.toLowerCase().includes(s) || c.region.toLowerCase().includes(s));
+    }, [countrySearch, sortedCountries]);
 
     const totalTerritoryRevenue = useMemo(() => {
         return territoryForecasts.reduce((sum, f) => sum + f.peakRevenue, 0);
@@ -675,8 +675,8 @@ function App() {
                                             }}
                                             style={{ flex: 1, padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)' }}
                                         >
-                                            <option value="">+ Add Country</option>
-                                            {COUNTRIES.map(c => (
+                                            <option value="">Select Country</option>
+                                            {sortedCountries.map(c => (
                                                 <option key={c.code} value={c.code}>{c.name}</option>
                                             ))}
                                         </select>
@@ -948,25 +948,7 @@ function App() {
                                 )}
                             </div>
 
-                            {dealMode === 'transfer_price' && (
-                                <div className="form-group">
-                                    <label>Royalty Logic Base</label>
-                                    <div className="toggle-group">
-                                        <button
-                                            className={`toggle-btn ${!royaltyAfterCogs ? 'active' : ''}`}
-                                            onClick={() => setRoyaltyAfterCogs(false)}
-                                        >
-                                            On Transfer Price
-                                        </button>
-                                        <button
-                                            className={`toggle-btn ${royaltyAfterCogs ? 'active' : ''}`}
-                                            onClick={() => setRoyaltyAfterCogs(true)}
-                                        >
-                                            On (TP - COGS)
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
+
 
                             {/* SLA Overhead Rate - Editable */}
                             <div className="form-group">
@@ -1034,7 +1016,7 @@ function App() {
                                                 <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearCogs, comparisonCurrency)}</td>
                                             </tr>
                                             <tr>
-                                                <td>Total Royalties</td>
+                                                <td>Total Inventory Royalties</td>
                                                 <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearRoyalties, currency)}</td>
                                                 <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearRoyalties, comparisonCurrency)}</td>
                                             </tr>
@@ -1073,7 +1055,7 @@ function App() {
                                                         <td style={{ textAlign: 'right' }}>{formatCurrency(results.years.reduce((s, y) => s + (y.partnerAnalysis?.partnerRevenue || 0), 0), comparisonCurrency)}</td>
                                                     </tr>
                                                     <tr>
-                                                        <td>Partner Cost (Pays SLA)</td>
+                                                        <td>SLA Royalty</td>
                                                         <td style={{ textAlign: 'right' }}>{formatCurrency(results.years.reduce((s, y) => s + (y.partnerAnalysis?.partnerCost || 0), 0), currency)}</td>
                                                         <td style={{ textAlign: 'right' }}>{formatCurrency(results.years.reduce((s, y) => s + (y.partnerAnalysis?.partnerCost || 0), 0), comparisonCurrency)}</td>
                                                     </tr>
@@ -1130,8 +1112,10 @@ function App() {
                                             <tr>
                                                 <th>Year</th>
                                                 <th>Units</th>
-                                                <th>COGS (EUR)</th>
-                                                <th>Royalty (EUR)</th>
+                                                <th>Gross Sales (EUR)</th>
+                                                <th>Net Sales TP (EUR)</th>
+                                                <th>Net Sales Royalty (EUR)</th>
+                                                <th>Inventory Royalty (EUR)</th>
                                                 <th>Overhead (EUR)</th>
                                                 <th style={{ textAlign: 'right' }}>Net Profit ({currency})</th>
                                                 <th style={{ textAlign: 'right' }}>Net Profit ({comparisonCurrency})</th>
@@ -1142,7 +1126,9 @@ function App() {
                                                 <tr key={year.year}>
                                                     <td>Year {year.year}</td>
                                                     <td>{year.sales.toLocaleString()}</td>
-                                                    <td>€{year.cogsPerUnit.toFixed(2)}</td>
+                                                    <td>€{(year.partnerAnalysis?.partnerRevenue || 0).toLocaleString()}</td>
+                                                    <td>{dealMode === 'transfer_price' ? formatCurrency(year.totalRevenue, currency) : '-'}</td>
+                                                    <td>{dealMode === 'profit_share' ? formatCurrency(year.totalRevenue, currency) : '-'}</td>
                                                     <td>{formatCurrency(year.totalRoyalties, currency)}</td>
                                                     <td>{formatCurrency(year.overhead, currency)}</td>
                                                     <td style={{ textAlign: 'right' }}>{formatCurrency(year.netProfit, currency)}</td>
@@ -1526,7 +1512,7 @@ function App() {
                                                 style={{ marginTop: '0.4rem', width: '100%', padding: '0.4rem', borderRadius: '8px', border: '1px solid var(--border)' }}
                                             >
                                                 <option value="">+ Add Country</option>
-                                                {COUNTRIES.map(c => (
+                                                {sortedCountries.map(c => (
                                                     <option key={c.code} value={c.name}>{c.name}</option>
                                                 ))}
                                             </select>
