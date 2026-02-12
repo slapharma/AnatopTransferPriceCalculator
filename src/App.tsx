@@ -86,6 +86,7 @@ function App() {
     const [profitSharePercent, setProfitSharePercent] = useState<string>('40');
     const [overheadRate, setOverheadRate] = useState<string>('25');
     const [showComparison, setShowComparison] = useState<boolean>(false);
+    const [comparisonViewMode, setComparisonViewMode] = useState<'summary' | 'breakdown'>('summary');
 
     // Territory Forecast State
     const [territoryEntries, setTerritoryEntries] = useState<{ id: string, country: Country }[]>([]);
@@ -1006,9 +1007,14 @@ function App() {
                                                 </td>
                                             </tr>
                                             <tr>
-                                                <td>Total Revenue</td>
-                                                <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearRevenue, currency)}</td>
-                                                <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearRevenue, comparisonCurrency)}</td>
+                                                <td>TP Net Revenue</td>
+                                                <td style={{ textAlign: 'right' }}>{formatCurrency(dealMode === 'transfer_price' ? results.totalFiveYearRevenue : 0, currency)}</td>
+                                                <td style={{ textAlign: 'right' }}>{formatCurrency(dealMode === 'transfer_price' ? results.totalFiveYearRevenue : 0, comparisonCurrency)}</td>
+                                            </tr>
+                                            <tr>
+                                                <td>PS Net Revenue</td>
+                                                <td style={{ textAlign: 'right' }}>{formatCurrency(dealMode === 'profit_share' ? results.totalFiveYearRevenue : 0, currency)}</td>
+                                                <td style={{ textAlign: 'right' }}>{formatCurrency(dealMode === 'profit_share' ? results.totalFiveYearRevenue : 0, comparisonCurrency)}</td>
                                             </tr>
                                             <tr>
                                                 <td>Total COGS</td>
@@ -1016,12 +1022,12 @@ function App() {
                                                 <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearCogs, comparisonCurrency)}</td>
                                             </tr>
                                             <tr>
-                                                <td>Total Inventory Royalties</td>
+                                                <td>Inventors Payments</td>
                                                 <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearRoyalties, currency)}</td>
                                                 <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearRoyalties, comparisonCurrency)}</td>
                                             </tr>
                                             <tr className="overhead-row">
-                                                <td>SLA Overhead Costs ({overheadRate}%)</td>
+                                                <td>SLA Overheads ({overheadRate}%)</td>
                                                 <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearOverhead, currency)}</td>
                                                 <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearOverhead, comparisonCurrency)}</td>
                                             </tr>
@@ -1031,7 +1037,7 @@ function App() {
                                                 <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearServiceFees, comparisonCurrency)}</td>
                                             </tr>
                                             <tr className="profit-row">
-                                                <td>Net Profit</td>
+                                                <td>SLA Net Profit</td>
                                                 <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearNetProfit, currency)}</td>
                                                 <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalFiveYearNetProfit, comparisonCurrency)}</td>
                                             </tr>
@@ -1042,23 +1048,35 @@ function App() {
                                                 </td>
                                             </tr>
                                             {/* Partner Profit Analysis */}
+                                            {/* Partner Profit Analysis */}
                                             {results.totalPartnerProfit !== null && (
                                                 <>
                                                     <tr style={{ borderTop: '2px solid var(--border)' }}>
-                                                        <td colSpan={3} style={{ fontWeight: 'bold', paddingTop: '1rem', color: 'var(--text-dim)' }}>
+                                                        <td colSpan={3} style={{ fontWeight: 'bold', paddingTop: '1rem', color: 'var(--text-dim)', background: '#fafafa' }}>
                                                             Partner Profit Analysis
                                                         </td>
                                                     </tr>
                                                     <tr>
-                                                        <td>Partner Expected Revenue</td>
+                                                        <td>PS Net Sales</td>
                                                         <td style={{ textAlign: 'right' }}>{formatCurrency(results.years.reduce((s, y) => s + (y.partnerAnalysis?.partnerRevenue || 0), 0), currency)}</td>
                                                         <td style={{ textAlign: 'right' }}>{formatCurrency(results.years.reduce((s, y) => s + (y.partnerAnalysis?.partnerRevenue || 0), 0), comparisonCurrency)}</td>
                                                     </tr>
                                                     <tr>
-                                                        <td>SLA Royalty</td>
-                                                        <td style={{ textAlign: 'right' }}>{formatCurrency(results.years.reduce((s, y) => s + (y.partnerAnalysis?.partnerCost || 0), 0), currency)}</td>
-                                                        <td style={{ textAlign: 'right' }}>{formatCurrency(results.years.reduce((s, y) => s + (y.partnerAnalysis?.partnerCost || 0), 0), comparisonCurrency)}</td>
+                                                        <td>SLA Royalty (Current)</td>
+                                                        <td style={{ textAlign: 'right' }}>{formatCurrency(results.years.reduce((s, y) => s + (y.partnerAnalysis?.partnerRoyalty || 0), 0), currency)}</td>
+                                                        <td style={{ textAlign: 'right' }}>{formatCurrency(results.years.reduce((s, y) => s + (y.partnerAnalysis?.partnerRoyalty || 0), 0), comparisonCurrency)}</td>
                                                     </tr>
+                                                    {comparisonResults && comparisonResults.totalPartnerProfit !== null && (
+                                                        <tr>
+                                                            <td>SLA Royalty ({dealMode === 'transfer_price' ? 'PS' : 'TP'} Option)</td>
+                                                            <td style={{ textAlign: 'right', color: 'var(--text-dim)' }}>
+                                                                {formatCurrency(comparisonResults.years.reduce((s, y) => s + (y.partnerAnalysis?.partnerRoyalty || 0), 0), currency)}
+                                                            </td>
+                                                            <td style={{ textAlign: 'right', color: 'var(--text-dim)' }}>
+                                                                {((results.years.reduce((s, y) => s + (y.partnerAnalysis?.partnerRoyalty || 0), 0) - comparisonResults.years.reduce((s, y) => s + (y.partnerAnalysis?.partnerRoyalty || 0), 0)) / comparisonResults.years.reduce((s, y) => s + (y.partnerAnalysis?.partnerRoyalty || 0), 0) * 100).toFixed(1)}% Diff
+                                                            </td>
+                                                        </tr>
+                                                    )}
                                                     <tr className="profit-row" style={{ background: 'rgba(16, 185, 129, 0.1)' }}>
                                                         <td>Partner Gross Margin</td>
                                                         <td style={{ textAlign: 'right' }}>{formatCurrency(results.totalPartnerProfit, currency)}</td>
@@ -1077,31 +1095,100 @@ function App() {
 
                                     {/* Comparison Mode Toggle */}
                                     <div className="comparison-toggle" style={{ marginTop: '1rem', padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
-                                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.85rem' }}>
-                                            <input
-                                                type="checkbox"
-                                                checked={showComparison}
-                                                onChange={(e) => setShowComparison(e.target.checked)}
-                                                style={{ accentColor: 'var(--primary)' }}
-                                            />
-                                            Show {dealMode === 'transfer_price' ? 'Profit Share' : 'Transfer Price'} comparison
-                                        </label>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.85rem' }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={showComparison}
+                                                    onChange={(e) => setShowComparison(e.target.checked)}
+                                                    style={{ accentColor: 'var(--primary)' }}
+                                                />
+                                                Compare Deal Structures
+                                            </label>
+
+                                            {showComparison && (
+                                                <div className="view-toggle" style={{ margin: 0, scale: '0.9' }}>
+                                                    <button
+                                                        className={`mini-tab ${comparisonViewMode === 'summary' ? 'active' : ''}`}
+                                                        onClick={() => setComparisonViewMode('summary')}
+                                                    >
+                                                        5-Year Summary
+                                                    </button>
+                                                    <button
+                                                        className={`mini-tab ${comparisonViewMode === 'breakdown' ? 'active' : ''}`}
+                                                        onClick={() => setComparisonViewMode('breakdown')}
+                                                    >
+                                                        Annual Breakdown
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
 
                                     {/* Comparison Results */}
                                     {showComparison && comparisonResults && (
                                         <div className="comparison-box" style={{ marginTop: '1rem', padding: '1rem', background: 'rgba(99, 102, 241, 0.1)', borderRadius: '8px', border: '1px dashed var(--primary)' }}>
                                             <h4 style={{ fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--primary)' }}>
-                                                {dealMode === 'transfer_price' ? 'Profit Share' : 'Transfer Price'} Alternative
+                                                Compare Deal Structures: Transfer Price vs Profit Share
                                             </h4>
-                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem', fontSize: '0.8rem' }}>
-                                                <span>SLA Net Profit:</span>
-                                                <span style={{ textAlign: 'right', fontWeight: 'bold' }}>{formatCurrency(comparisonResults.totalFiveYearNetProfit, currency)}</span>
-                                                <span>Partner Profit:</span>
-                                                <span style={{ textAlign: 'right', fontWeight: 'bold' }}>{formatCurrency(comparisonResults.totalPartnerProfit || 0, currency)}</span>
-                                                <span>Margin:</span>
-                                                <span style={{ textAlign: 'right', fontWeight: 'bold' }}>{comparisonResults.averageMargin.toFixed(2)}%</span>
-                                            </div>
+
+                                            {comparisonViewMode === 'summary' ? (
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '1rem', fontSize: '0.8rem' }}>
+                                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                        <span style={{ color: 'var(--text-dim)' }}>TP Net Revenue (SLA)</span>
+                                                        <span style={{ fontWeight: 600 }}>
+                                                            {formatCurrency(dealMode === 'transfer_price' ? results.totalFiveYearRevenue : comparisonResults.totalFiveYearRevenue, currency)}
+                                                        </span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                        <span style={{ color: 'var(--text-dim)' }}>PS Net Revenue (SLA)</span>
+                                                        <span style={{ fontWeight: 600 }}>
+                                                            {formatCurrency(dealMode === 'profit_share' ? results.totalFiveYearRevenue : comparisonResults.totalFiveYearRevenue, currency)}
+                                                        </span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                        <span style={{ color: 'var(--text-dim)' }}>SLA Net Profit (TP)</span>
+                                                        <span style={{ fontWeight: 600 }}>
+                                                            {formatCurrency(dealMode === 'transfer_price' ? results.totalFiveYearNetProfit : comparisonResults.totalFiveYearNetProfit, currency)}
+                                                        </span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                        <span style={{ color: 'var(--text-dim)' }}>SLA Net Profit (PS)</span>
+                                                        <span style={{ fontWeight: 600 }}>
+                                                            {formatCurrency(dealMode === 'profit_share' ? results.totalFiveYearNetProfit : comparisonResults.totalFiveYearNetProfit, currency)}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div style={{ overflowX: 'auto' }}>
+                                                    <table style={{ width: '100%', fontSize: '0.75rem', textAlign: 'right' }}>
+                                                        <thead>
+                                                            <tr>
+                                                                <th style={{ textAlign: 'left' }}>Year</th>
+                                                                <th>TP Rev (SLA)</th>
+                                                                <th>PS Rev (SLA)</th>
+                                                                <th>SLA Royalty (TP)</th>
+                                                                <th>SLA Royalty (PS)</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {[0, 1, 2, 3, 4].map(i => {
+                                                                const tpRes = dealMode === 'transfer_price' ? results.years[i] : comparisonResults.years[i];
+                                                                const psRes = dealMode === 'profit_share' ? results.years[i] : comparisonResults.years[i];
+                                                                return (
+                                                                    <tr key={i}>
+                                                                        <td style={{ textAlign: 'left' }}>Y{i + 1}</td>
+                                                                        <td>{formatCurrency(tpRes.totalRevenue, currency)}</td>
+                                                                        <td>{formatCurrency(psRes.totalRevenue, currency)}</td>
+                                                                        <td>{formatCurrency(tpRes.partnerAnalysis?.partnerCost || 0, currency)}</td>
+                                                                        <td>{formatCurrency(psRes.partnerAnalysis?.partnerCost || 0, currency)}</td>
+                                                                    </tr>
+                                                                );
+                                                            })}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </>
@@ -1112,13 +1199,13 @@ function App() {
                                             <tr>
                                                 <th>Year</th>
                                                 <th>Units</th>
-                                                <th>Gross Sales (EUR)</th>
-                                                <th>Net Sales TP (EUR)</th>
-                                                <th>Net Sales Royalty (EUR)</th>
-                                                <th>Inventory Royalty (EUR)</th>
-                                                <th>Overhead (EUR)</th>
-                                                <th style={{ textAlign: 'right' }}>Net Profit ({currency})</th>
-                                                <th style={{ textAlign: 'right' }}>Net Profit ({comparisonCurrency})</th>
+                                                <th>PS Net Sales (EUR)</th>
+                                                <th>TP Net Revenue (EUR)</th>
+                                                <th>SLA Royalty (EUR)</th>
+                                                <th>Inventors Payments (EUR)</th>
+                                                <th>SLA Overheads (EUR)</th>
+                                                <th style={{ textAlign: 'right' }}>SLA Net Profit ({currency})</th>
+                                                <th style={{ textAlign: 'right' }}>SLA Net Profit ({comparisonCurrency})</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -1143,7 +1230,7 @@ function App() {
                             <div className="royalties-section">
                                 <div className="tab-header-mini" style={{ marginBottom: '1rem' }}>
                                     <div className="card-title" style={{ fontSize: '0.9rem' }}>
-                                        Royalty Breakdown {viewMode === 'summary' ? '(5-Year Total)' : `(Year ${selectedRoyaltyYear})`}
+                                        Inventors Payments {viewMode === 'summary' ? '(5-Year Total)' : `(Year ${selectedRoyaltyYear})`}
                                     </div>
                                     {viewMode === 'breakdown' && (
                                         <div style={{ display: 'flex', gap: '4px' }}>
@@ -1180,6 +1267,28 @@ function App() {
                                             </div>
                                         );
                                     })}
+                                    {/* Total Row */}
+                                    <div className="royalty-item" style={{ marginTop: '0.5rem', borderTop: '1px dashed var(--border)', paddingTop: '0.5rem' }}>
+                                        <span className="royalty-name" style={{ fontWeight: 'bold' }}>TOTAL</span>
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                                            <span className="royalty-amount" style={{ fontWeight: 'bold' }}>
+                                                {formatCurrency(
+                                                    viewMode === 'summary'
+                                                        ? results.totalFiveYearRoyalties
+                                                        : results.years[selectedRoyaltyYear - 1].totalRoyalties,
+                                                    currency
+                                                )}
+                                            </span>
+                                            <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>
+                                                {formatCurrency(
+                                                    viewMode === 'summary'
+                                                        ? results.totalFiveYearRoyalties
+                                                        : results.years[selectedRoyaltyYear - 1].totalRoyalties,
+                                                    comparisonCurrency
+                                                )}
+                                            </span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 

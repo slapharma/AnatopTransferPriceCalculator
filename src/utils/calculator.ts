@@ -18,7 +18,9 @@ export interface ServiceFees {
 
 export interface PartnerProfitAnalysis {
     partnerRevenue: number;
-    partnerCost: number; // This is the Transfer Price they pay SLA
+    partnerCost: number; // Dis pay to SLA
+    partnerRoyalty: number; // The "Share" or "Transfer Price" component
+    partnerCogs: number; // The COGS component (if separated)
     partnerMargin: number;
     partnerMarginPercent: number;
 }
@@ -147,6 +149,8 @@ export function calculateProfit(
         partnerAnalysis = {
             partnerRevenue,
             partnerCost,
+            partnerRoyalty: totalRevenue, // In TP mode, the whole cost is the payment to SLA
+            partnerCogs: 0, // No separate COGS reimbursement
             partnerMargin,
             partnerMarginPercent
         };
@@ -296,6 +300,8 @@ export function calculateProfitShare(
         const partnerAnalysis: PartnerProfitAnalysis = {
             partnerRevenue,
             partnerCost: cogsAmount + slaGrossShare, // What they "pay" out
+            partnerRoyalty: slaGrossShare, // The revenue share
+            partnerCogs: cogsAmount, // The COGS reimbursement
             partnerMargin,
             partnerMarginPercent: partnerRevenue > 0 ? (partnerMargin / partnerRevenue) * 100 : 0
         };
