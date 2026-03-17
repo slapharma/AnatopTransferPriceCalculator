@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { type Currency, type FXRates, fetchFXRates, convertPrice, formatRateDisplay } from './utils/fx';
 import { calculateFiveYearProfit, calculateProfitShare, DEFAULT_ROYALTIES, type RoyaltyTier, type PricingType, type ServiceFees, type FiveYearCalculationResult } from './utils/calculator';
 import { COUNTRIES, calculateTerritoryForecast, type Country } from './utils/countries';
-import { FileDown, Settings, Info, Lock, Briefcase, History, Trash2, Edit, Save, Plus, TrendingUp, RefreshCw, Globe } from 'lucide-react';
+import { FileDown, Settings, Info, Briefcase, History, Trash2, Edit, Save, Plus, TrendingUp, RefreshCw, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -43,10 +43,6 @@ function App() {
     const [comparisonCurrency, setComparisonCurrency] = useState<Currency>('GBP');
     const [transferPriceInput, setTransferPriceInput] = useState<string>('5.00');
     const [forecastSalesInputs, setForecastSalesInputs] = useState<string[]>(['0', '0', '0', '0', '0']);
-
-    // Password State
-    const [password, setPassword] = useState('');
-    const [isAuthorized, setIsAuthorized] = useState(false);
 
     // Navigation State
     const [activeTab, setActiveTab] = useState<'signed' | 'potential' | 'calculate' | 'territory'>('calculate');
@@ -157,7 +153,6 @@ function App() {
                         });
                     }
                 }
-
             } catch (err) {
                 console.error("Failed to fetch data from API. Is the server running?", err);
                 // Fallback to localStorage if server fails entirely
@@ -169,12 +164,6 @@ function App() {
         };
 
         fetchData();
-
-        // Check Auth session
-        const auth = sessionStorage.getItem('anatop_auth');
-        if (auth === 'true') {
-            setIsAuthorized(true);
-        }
     }, []);
 
     // Save Deals to API
@@ -202,16 +191,6 @@ function App() {
 
         localStorage.setItem('anatop_forecasts', JSON.stringify(savedForecasts));
     }, [savedForecasts]);
-
-    const handlePasswordSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (password === 'antop2026') {
-            setIsAuthorized(true);
-            sessionStorage.setItem('anatop_auth', 'true');
-        } else {
-            alert('Incorrect password');
-        }
-    };
 
     const addDeal = (type: 'signed' | 'potential') => {
         const breakdown: CountryBreakdown[] = selectedDealCountries.map(c => ({
@@ -483,36 +462,6 @@ function App() {
         return (
             <div className="loading-screen">
                 <div className="spinner"></div>
-            </div>
-        );
-    }
-
-    if (!isAuthorized) {
-        return (
-            <div className="password-overlay">
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="password-card"
-                >
-                    <Lock size={48} color="var(--primary)" style={{ marginBottom: '1rem' }} />
-                    <h2>ANATOP Pipeline</h2>
-                    <p style={{ marginBottom: '1.5rem', color: 'var(--text-dim)' }}>Please enter password to continue</p>
-                    <form onSubmit={handlePasswordSubmit}>
-                        <div className="password-input">
-                            <input
-                                type="password"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                placeholder="••••••••"
-                                autoFocus
-                            />
-                        </div>
-                        <button type="submit" className="btn-primary" style={{ width: '100%' }}>
-                            Access Dashboard
-                        </button>
-                    </form>
-                </motion.div>
             </div>
         );
     }

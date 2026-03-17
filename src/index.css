@@ -282,46 +282,6 @@ input:focus {
     border-color: var(--border);
 }
 
-/* Password Modal */
-.password-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.8);
-    backdrop-filter: blur(8px);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 1000;
-}
-
-.password-card {
-    background: white;
-    padding: 2.5rem;
-    border-radius: 20px;
-    width: 100%;
-    max-width: 400px;
-    text-align: center;
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-}
-
-.password-card h2 {
-    margin-bottom: 1.5rem;
-    color: var(--text);
-}
-
-.password-input {
-    margin-bottom: 1.5rem;
-}
-
-.password-input input {
-    text-align: center;
-    font-size: 1.2rem;
-    letter-spacing: 0.2rem;
-}
-
 /* Tabs */
 .tabs-nav {
     display: flex;
